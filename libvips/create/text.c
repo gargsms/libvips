@@ -50,6 +50,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include <vips/vips.h>
 
@@ -66,6 +67,7 @@ typedef struct _VipsText {
 	char *text;
 	char *font;
 	int width;
+	int height;
 	int spacing;
 	VipsAlign align;
 	int dpi;
@@ -148,6 +150,49 @@ text_layout_new( PangoContext *context,
 	return( layout );
 }
 
+static int 
+digits_in_num( int f )
+{
+  int digits = 0;
+  while( f ) {
+    f /= 10;
+    digits++;
+  }
+  return digits;
+}
+
+static PangoRectangle 
+autofit_text_to_bounds( VipsText *text, 
+	int tolerance, char *name, int size, PangoRectangle rect )
+{
+
+	int buf_size = sizeof(name) + digits_in_num(size) + 3;
+	int deviation;
+	char buf[ buf_size ];
+	int size_copy = size;
+
+	size = size * sqrt((double)text->height/PANGO_PIXELS(rect.height));
+	// We cannot fit any better. Give up
+	if( size == size_copy ) {
+		return rect;
+	}
+	snprintf( buf, buf_size, "%s %d", name, size );
+	text->layout = text_layout_new( text->context, 
+		text->text, buf, 
+		text->width, text->spacing, text->align, text->dpi );
+
+	pango_layout_get_extents( text->layout, NULL, &rect );
+
+	deviation = 100 * abs( PANGO_PIXELS( rect.height ) - text->height ) 
+		/ text->height;
+
+	if( tolerance < deviation )  {
+		autofit_text_to_bounds( text, tolerance, name, size, rect );
+	} else {
+		return rect;
+	}
+}
+
 static int
 vips_text_build( VipsObject *object )
 {
@@ -162,6 +207,12 @@ vips_text_build( VipsObject *object )
 	int height;
 	int y;
 
+	const int TOLERANCE = 5;
+	int deviation;
+
+	char *last;
+	int font_size;
+
 	if( VIPS_OBJECT_CLASS( vips_text_parent_class )->build( object ) )
 		return( -1 );
 
@@ -173,6 +224,12 @@ vips_text_build( VipsObject *object )
 
 	if( !text->font )
 		g_object_set( text, "font", "sans 12", NULL ); 
+
+	char font_name[ sizeof( text->font ) ];
+
+	last = strrchr( text->font, ' ' );
+	font_size = strtol( last, NULL, 10 );
+	strncpy( font_name, text->font, last - text->font );
 
 	g_mutex_lock( vips_text_lock ); 
 
@@ -192,6 +249,14 @@ vips_text_build( VipsObject *object )
 	}
 
 	pango_layout_get_extents( text->layout, NULL, &logical_rect );
+
+	deviation = 100 * abs( PANGO_PIXELS( logical_rect.height ) - text->height ) 
+		/ text->height;
+
+	if( text->height && deviation > TOLERANCE ) {
+		logical_rect = autofit_text_to_bounds( text, 
+			TOLERANCE, font_name, font_size, logical_rect );
+	}
 
 #ifdef DEBUG
 	printf( "logical left = %d, top = %d, width = %d, height = %d\n",
@@ -300,21 +365,28 @@ vips_text_class_init( VipsTextClass *class )
 		G_STRUCT_OFFSET( VipsText, width ),
 		0, VIPS_MAX_COORD, 0 );
 
-	VIPS_ARG_ENUM( class, "align", 7, 
+	VIPS_ARG_INT( class, "height", 7, 
+		_( "Height" ), 
+		_( "Maximum image height in pixels" ),
+		VIPS_ARGUMENT_OPTIONAL_INPUT,
+		G_STRUCT_OFFSET( VipsText, height ),
+		0, VIPS_MAX_COORD, 0 );
+
+	VIPS_ARG_ENUM( class, "align", 8, 
 		_( "Align" ), 
 		_( "Align on the low, centre or high edge" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsText, align ),
 		VIPS_TYPE_ALIGN, VIPS_ALIGN_LOW ); 
 
-	VIPS_ARG_INT( class, "dpi", 8, 
+	VIPS_ARG_INT( class, "dpi", 9, 
 		_( "DPI" ), 
 		_( "DPI to render at" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsText, dpi ),
 		1, 1000000, 72 );
 
-	VIPS_ARG_INT( class, "spacing", 9, 
+	VIPS_ARG_INT( class, "spacing", 10, 
 		_( "Spacing" ), 
 		_( "Line spacing" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
