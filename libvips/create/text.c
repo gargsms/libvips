@@ -212,7 +212,7 @@ static PangoRectangle
 best_fit_to_bounds( VipsText *text, 
 	int tolerance, char *name, int size, PangoRectangle rect, FontSizeMap *fmap )
 {
-	int buf_size = strlen( name ) + digits_in_num( fmap->size ) + 2;
+	int buf_size = strlen( name ) + digits_in_num( fmap->size ) + 3;
 	int deviation;
 	char buf[ buf_size ];
 	int height = PANGO_PIXELS( rect.height );
@@ -222,7 +222,7 @@ best_fit_to_bounds( VipsText *text,
 	if( height < text->height ) {
 		while( deviation > tolerance && height < text->height ) {
 			size += 1;
-			snprintf( buf, buf_size, "%s %d", name, size );
+			snprintf( buf, buf_size, "%s%d", name, size );
 
 			text->layout = text_layout_new( text->context, 
 				text->text, buf, 
@@ -234,7 +234,7 @@ best_fit_to_bounds( VipsText *text,
 			deviation = 100 * abs( height - text->height ) / text->height;
 		}
 		size -= 1;
-		snprintf( buf, buf_size, "%s %d", name, size );
+		snprintf( buf, buf_size, "%s%d", name, size );
 
 		text->layout = text_layout_new( text->context, 
 			text->text, buf, 
@@ -245,7 +245,7 @@ best_fit_to_bounds( VipsText *text,
 	} else {
 		while( deviation > tolerance && height > text->height ) {
 			size -= 1;
-			snprintf( buf, buf_size, "%s %d", name, size );
+			snprintf( buf, buf_size, "%s%d", name, size );
 
 			text->layout = text_layout_new( text->context, 
 				text->text, buf, 
@@ -257,7 +257,7 @@ best_fit_to_bounds( VipsText *text,
 			deviation = 100 * abs( height - text->height ) / text->height;
 		}
 		size += 1;
-		snprintf( buf, buf_size, "%s %d", name, size );
+		snprintf( buf, buf_size, "%s%d", name, size );
 
 		text->layout = text_layout_new( text->context, 
 			text->text, buf, 
@@ -272,7 +272,7 @@ static PangoRectangle
 coarse_fit_to_bounds( VipsText *text, 
 	int tolerance, char *name, int size, PangoRectangle rect, FontSizeMap *fmap )
 {
-	int buf_size = strlen( name ) + digits_in_num( size ) + 2;
+	int buf_size = strlen( name ) + digits_in_num( size ) + 3;
 	int deviation;
 	char buf[ buf_size ];
 	int size_copy = size;
@@ -292,7 +292,7 @@ coarse_fit_to_bounds( VipsText *text,
 	if( size == size_copy ) {
 		return rect;
 	}
-	snprintf( buf, buf_size, "%s %d", name, size );
+	snprintf( buf, buf_size, "%s%d", name, size );
 
 	text->layout = text_layout_new( text->context, 
 		text->text, buf, 
@@ -332,7 +332,7 @@ vips_text_build( VipsObject *object )
 	int height;
 	int y;
 
-	const int TOLERANCE = 5;
+	const int TOLERANCE = 2;
 	int deviation;
 
 	char *last;
@@ -350,11 +350,12 @@ vips_text_build( VipsObject *object )
 	if( !text->font )
 		g_object_set( text, "font", "sans 12", NULL ); 
 
-	char font_name[ strlen( text->font ) ];
+	char font_name[ strlen( text->font ) + 3 ];
 
-	last = strrchr( text->font, ' ' );
-	font_size = strtol( last+1, NULL, 10 );
+	last = strrchr( text->font, ' ' ) + 1;
+	font_size = strtol( last, NULL, 10 );
 	strncpy( font_name, text->font, last - text->font );
+	font_name[last - text->font] = '\0';
 
 	g_mutex_lock( vips_text_lock ); 
 
@@ -375,7 +376,8 @@ vips_text_build( VipsObject *object )
 
 	pango_layout_get_extents( text->layout, NULL, &logical_rect );
 
-	deviation = text->height ? 100 * abs( PANGO_PIXELS( logical_rect.height ) - text->height ) 
+	deviation = text->height ? 
+		100 * abs( PANGO_PIXELS( logical_rect.height ) - text->height ) 
 		/ text->height : 0;
 
 	if( text->height && deviation > TOLERANCE ) {
