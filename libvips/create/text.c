@@ -389,13 +389,13 @@ vips_text_build( VipsObject *object )
 			TOLERANCE, font_name, font_size, logical_rect, fmap );
 	}
 
-//#ifdef DEBUG
+#ifdef DEBUG
 	printf( "logical left = %d, top = %d, width = %d, height = %d\n",
 		PANGO_PIXELS( logical_rect.x ),
 		PANGO_PIXELS( logical_rect.y ),
 		PANGO_PIXELS( logical_rect.width ),
 		PANGO_PIXELS( logical_rect.height ) );
-//#endif /*DEBUG*/
+#endif /*DEBUG*/
 
 	left = PANGO_PIXELS( logical_rect.x );
 	top = PANGO_PIXELS( logical_rect.y );
