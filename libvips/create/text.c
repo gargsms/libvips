@@ -50,7 +50,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
+#include <stdbool.h>
 
 #include <vips/vips.h>
 
@@ -79,6 +79,15 @@ typedef struct _VipsText {
 } VipsText;
 
 typedef VipsCreateClass VipsTextClass;
+
+typedef struct _FontSizeMap FontSizeMap;
+
+struct _FontSizeMap {
+	int deviation;
+	int height;
+	int size;
+	FontSizeMap *next;
+};
 
 G_DEFINE_TYPE( VipsText, vips_text, VIPS_TYPE_CREATE );
 
@@ -161,33 +170,147 @@ digits_in_num( int f )
   return digits;
 }
 
-static PangoRectangle 
-autofit_text_to_bounds( VipsText *text, 
-	int tolerance, char *name, int size, PangoRectangle rect )
+static bool 
+search_fmap( FontSizeMap *fmap, int size )
 {
+	FontSizeMap *entry = fmap;
+	while( entry->next != NULL ) {
+		if( entry->size == size )
+			return true;
+		entry = entry->next;
+	}
+	return false;
+}
 
-	int buf_size = sizeof(name) + digits_in_num(size) + 3;
+static FontSizeMap *
+least_deviation_fmap( FontSizeMap *fmap )
+{
+	FontSizeMap *entry = fmap;
+	int smallest = 9999;
+	FontSizeMap *least;
+	while( entry->next != NULL ) {
+		if( entry->deviation < smallest ) {
+			smallest = entry->deviation;
+			least = entry;
+		}
+		entry = entry->next;
+	}
+	return least;
+}
+
+static void 
+append_to_fmap( FontSizeMap *fmap, FontSizeMap *nfmap )
+{
+	FontSizeMap *entry = fmap;
+	while( entry->next != NULL ) {
+		entry = entry->next;
+	}
+	entry->next = nfmap;
+}
+
+static PangoRectangle 
+best_fit_to_bounds( VipsText *text, 
+	int tolerance, char *name, int size, PangoRectangle rect, FontSizeMap *fmap )
+{
+	int buf_size = strlen( name ) + digits_in_num( fmap->size ) + 2;
+	int deviation;
+	char buf[ buf_size ];
+	int height = PANGO_PIXELS( rect.height );
+
+	deviation = 100 * abs( height - text->height ) / text->height;
+
+	if( height < text->height ) {
+		while( deviation > tolerance && height < text->height ) {
+			size += 1;
+			snprintf( buf, buf_size, "%s %d", name, size );
+
+			text->layout = text_layout_new( text->context, 
+				text->text, buf, 
+				text->width, text->spacing, text->align, text->dpi );
+
+			pango_layout_get_extents( text->layout, NULL, &rect );
+
+			height = PANGO_PIXELS( rect.height );
+			deviation = 100 * abs( height - text->height ) / text->height;
+		}
+		size -= 1;
+		snprintf( buf, buf_size, "%s %d", name, size );
+
+		text->layout = text_layout_new( text->context, 
+			text->text, buf, 
+			text->width, text->spacing, text->align, text->dpi );
+
+		pango_layout_get_extents( text->layout, NULL, &rect );
+		return rect;
+	} else {
+		while( deviation > tolerance && height > text->height ) {
+			size -= 1;
+			snprintf( buf, buf_size, "%s %d", name, size );
+
+			text->layout = text_layout_new( text->context, 
+				text->text, buf, 
+				text->width, text->spacing, text->align, text->dpi );
+
+			pango_layout_get_extents( text->layout, NULL, &rect );
+
+			height = PANGO_PIXELS( rect.height );
+			deviation = 100 * abs( height - text->height ) / text->height;
+		}
+		size += 1;
+		snprintf( buf, buf_size, "%s %d", name, size );
+
+		text->layout = text_layout_new( text->context, 
+			text->text, buf, 
+			text->width, text->spacing, text->align, text->dpi );
+
+		pango_layout_get_extents( text->layout, NULL, &rect );
+		return rect;
+	}
+}
+
+static PangoRectangle 
+coarse_fit_to_bounds( VipsText *text, 
+	int tolerance, char *name, int size, PangoRectangle rect, FontSizeMap *fmap )
+{
+	int buf_size = strlen( name ) + digits_in_num( size ) + 2;
 	int deviation;
 	char buf[ buf_size ];
 	int size_copy = size;
+	int height = PANGO_PIXELS( rect.height );
 
-	size = size * sqrt((double)text->height/PANGO_PIXELS(rect.height));
+	FontSizeMap *nfmap = (FontSizeMap *) malloc( sizeof( FontSizeMap ) );
+
+	size = size * sqrt( (double)text->height / height );
+	// We have been through this before. Find the one with the smallest deviation
+	// Once that is done, based on the FontSizeMap height, required height, find
+	// the right font size
+	if( search_fmap( fmap, size ) ) {
+		return best_fit_to_bounds( text, 
+			tolerance, name, size_copy, rect, least_deviation_fmap( fmap ) );
+	}
 	// We cannot fit any better. Give up
 	if( size == size_copy ) {
 		return rect;
 	}
 	snprintf( buf, buf_size, "%s %d", name, size );
+
 	text->layout = text_layout_new( text->context, 
 		text->text, buf, 
 		text->width, text->spacing, text->align, text->dpi );
 
 	pango_layout_get_extents( text->layout, NULL, &rect );
 
-	deviation = 100 * abs( PANGO_PIXELS( rect.height ) - text->height ) 
-		/ text->height;
+	height = PANGO_PIXELS( rect.height );
+	deviation = 100 * abs( height - text->height ) / text->height;
+
+	nfmap->size = size;
+	nfmap->deviation = deviation;
+	nfmap->height = height;
+	nfmap->next = NULL;
+	append_to_fmap( fmap, nfmap );
 
 	if( tolerance < deviation )  {
-		autofit_text_to_bounds( text, tolerance, name, size, rect );
+		return coarse_fit_to_bounds( text, tolerance, name, size, rect, fmap );
 	} else {
 		return rect;
 	}
@@ -199,6 +322,8 @@ vips_text_build( VipsObject *object )
 	VipsObjectClass *class = VIPS_OBJECT_GET_CLASS( object );
 	VipsCreate *create = VIPS_CREATE( object );
 	VipsText *text = (VipsText *) object;
+
+	FontSizeMap *fmap = (FontSizeMap *) malloc( sizeof( FontSizeMap ) );
 
 	PangoRectangle logical_rect;
 	int left;
@@ -225,10 +350,10 @@ vips_text_build( VipsObject *object )
 	if( !text->font )
 		g_object_set( text, "font", "sans 12", NULL ); 
 
-	char font_name[ sizeof( text->font ) ];
+	char font_name[ strlen( text->font ) ];
 
 	last = strrchr( text->font, ' ' );
-	font_size = strtol( last, NULL, 10 );
+	font_size = strtol( last+1, NULL, 10 );
 	strncpy( font_name, text->font, last - text->font );
 
 	g_mutex_lock( vips_text_lock ); 
@@ -250,21 +375,27 @@ vips_text_build( VipsObject *object )
 
 	pango_layout_get_extents( text->layout, NULL, &logical_rect );
 
-	deviation = 100 * abs( PANGO_PIXELS( logical_rect.height ) - text->height ) 
-		/ text->height;
+	deviation = text->height ? 100 * abs( PANGO_PIXELS( logical_rect.height ) - text->height ) 
+		/ text->height : 0;
 
 	if( text->height && deviation > TOLERANCE ) {
-		logical_rect = autofit_text_to_bounds( text, 
-			TOLERANCE, font_name, font_size, logical_rect );
+
+		fmap->size = font_size;
+		fmap->deviation = deviation;
+		fmap->height = PANGO_PIXELS( logical_rect.height );
+		fmap->next = NULL;
+
+		logical_rect = coarse_fit_to_bounds( text, 
+			TOLERANCE, font_name, font_size, logical_rect, fmap );
 	}
 
-#ifdef DEBUG
+//#ifdef DEBUG
 	printf( "logical left = %d, top = %d, width = %d, height = %d\n",
 		PANGO_PIXELS( logical_rect.x ),
 		PANGO_PIXELS( logical_rect.y ),
 		PANGO_PIXELS( logical_rect.width ),
 		PANGO_PIXELS( logical_rect.height ) );
-#endif /*DEBUG*/
+//#endif /*DEBUG*/
 
 	left = PANGO_PIXELS( logical_rect.x );
 	top = PANGO_PIXELS( logical_rect.y );
