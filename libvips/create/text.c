@@ -326,6 +326,7 @@ vips_text_build( VipsObject *object )
 	FontSizeMap *fmap = (FontSizeMap *) malloc( sizeof( FontSizeMap ) );
 
 	PangoRectangle logical_rect;
+	PangoRectangle ink_rect;
 	int left;
 	int top;
 	int width;
@@ -391,6 +392,8 @@ vips_text_build( VipsObject *object )
 			TOLERANCE, font_name, font_size, logical_rect, fmap );
 	}
 
+	pango_layout_get_extents( text->layout, &ink_rect, NULL );
+
 #ifdef DEBUG
 	printf( "logical left = %d, top = %d, width = %d, height = %d\n",
 		PANGO_PIXELS( logical_rect.x ),
@@ -399,10 +402,10 @@ vips_text_build( VipsObject *object )
 		PANGO_PIXELS( logical_rect.height ) );
 #endif /*DEBUG*/
 
-	left = PANGO_PIXELS( logical_rect.x );
-	top = PANGO_PIXELS( logical_rect.y );
-	width = PANGO_PIXELS( logical_rect.width );
-	height = PANGO_PIXELS( logical_rect.height );
+	left = PANGO_PIXELS( ink_rect.x );
+	top = PANGO_PIXELS( ink_rect.y );
+	width = PANGO_PIXELS( ink_rect.width );
+	height = PANGO_PIXELS( ink_rect.height );
 
 	/* Can happen for "", for example.
 	 */
