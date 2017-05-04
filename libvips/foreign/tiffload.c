@@ -2,6 +2,8 @@
  *
  * 5/12/11
  * 	- from tiffload.c
+ * 27/1/17
+ * 	- add get_flags for buffer loader
  */
 
 /*
@@ -181,8 +183,7 @@ vips_foreign_load_tiff_file_load( VipsForeignLoad *load )
 	VipsForeignLoadTiffFile *file = (VipsForeignLoadTiffFile *) load;
 
 	if( vips__tiff_read( file->filename, load->real, 
-		tiff->page, tiff->n,  tiff->autorotate, 
-		load->access == VIPS_ACCESS_SEQUENTIAL ) )
+		tiff->page, tiff->n,  tiff->autorotate ) )
 		return( -1 );
 
 	return( 0 );
@@ -244,6 +245,22 @@ typedef VipsForeignLoadTiffClass VipsForeignLoadTiffBufferClass;
 G_DEFINE_TYPE( VipsForeignLoadTiffBuffer, vips_foreign_load_tiff_buffer, 
 	vips_foreign_load_tiff_get_type() );
 
+static VipsForeignFlags
+vips_foreign_load_tiff_buffer_get_flags( VipsForeignLoad *load )
+{
+	VipsForeignLoadTiffBuffer *buffer = (VipsForeignLoadTiffBuffer *) load;
+
+	VipsForeignFlags flags;
+
+	flags = 0;
+	if( vips__istifftiled_buffer( buffer->buf->data, buffer->buf->length ) ) 
+		flags |= VIPS_FOREIGN_PARTIAL;
+	else
+		flags |= VIPS_FOREIGN_SEQUENTIAL;
+
+	return( flags );
+}
+
 static int
 vips_foreign_load_tiff_buffer_header( VipsForeignLoad *load )
 {
@@ -266,8 +283,7 @@ vips_foreign_load_tiff_buffer_load( VipsForeignLoad *load )
 
 	if( vips__tiff_read_buffer( 
 		buffer->buf->data, buffer->buf->length, load->real, 
-		tiff->page, tiff->n, tiff->autorotate,
-		load->access == VIPS_ACCESS_SEQUENTIAL ) )
+		tiff->page, tiff->n, tiff->autorotate ) )
 		return( -1 );
 
 	return( 0 );
@@ -288,6 +304,7 @@ vips_foreign_load_tiff_buffer_class_init(
 	object_class->description = _( "load tiff from buffer" );
 
 	load_class->is_a_buffer = vips__istiff_buffer;
+	load_class->get_flags = vips_foreign_load_tiff_buffer_get_flags;
 	load_class->header = vips_foreign_load_tiff_buffer_header;
 	load_class->load = vips_foreign_load_tiff_buffer_load;
 

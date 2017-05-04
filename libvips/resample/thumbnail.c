@@ -3,6 +3,8 @@
  *
  * 2/11/16
  * 	- from vipsthumbnail.c
+ * 6/1/17
+ * 	- add @size parameter
  */
 
 /*
@@ -68,9 +70,10 @@ typedef struct _VipsThumbnail {
 	VipsImage *out;
 	int width;
 	int height;
+	VipsSize size;
 
 	gboolean auto_rotate;
-	gboolean crop;
+	VipsInteresting crop;
 	gboolean linear;
 	char *export_profile;
 	char *import_profile;
@@ -106,6 +109,30 @@ typedef struct _VipsThumbnailClass {
 
 G_DEFINE_ABSTRACT_TYPE( VipsThumbnail, vips_thumbnail, VIPS_TYPE_OPERATION );
 
+static void
+vips_thumbnail_dispose( GObject *gobject )
+{
+#ifdef DEBUG
+	printf( "vips_thumbnail_dispose: " );
+	vips_object_print_name( VIPS_OBJECT( gobject ) );
+	printf( "\n" );
+#endif /*DEBUG*/
+
+	G_OBJECT_CLASS( vips_thumbnail_parent_class )->dispose( gobject );
+}
+
+static void
+vips_thumbnail_finalize( GObject *gobject )
+{
+#ifdef DEBUG
+	printf( "vips_thumbnail_finalize: " );
+	vips_object_print_name( VIPS_OBJECT( gobject ) );
+	printf( "\n" );
+#endif /*DEBUG*/
+
+	G_OBJECT_CLASS( vips_thumbnail_parent_class )->finalize( gobject );
+}
+
 /* Calculate the shrink factor, taking into account auto-rotate, the fit mode,
  * and so on.
  */
@@ -122,6 +149,7 @@ vips_thumbnail_calculate_shrink( VipsThumbnail *thumbnail,
 		input_width : input_height;
 
 	VipsDirection direction;
+	double shrink;
 
 	/* Calculate the horizontal and vertical shrink we'd need to fit the
 	 * image to the bounding box, and pick the biggest. 
@@ -132,7 +160,7 @@ vips_thumbnail_calculate_shrink( VipsThumbnail *thumbnail,
 	double horizontal = (double) width / thumbnail->width;
 	double vertical = (double) height / thumbnail->height;
 
-	if( thumbnail->crop ) {
+	if( thumbnail->crop != VIPS_INTERESTING_NONE ) {
 		if( horizontal < vertical )
 			direction = VIPS_DIRECTION_HORIZONTAL;
 		else
@@ -145,8 +173,17 @@ vips_thumbnail_calculate_shrink( VipsThumbnail *thumbnail,
 			direction = VIPS_DIRECTION_HORIZONTAL;
 	}
 
-	return( direction == VIPS_DIRECTION_HORIZONTAL ?
-		horizontal : vertical );  
+	shrink = direction == VIPS_DIRECTION_HORIZONTAL ?
+		horizontal : vertical;  
+
+	/* Restrict to only upsize, only downsize, or both.
+	 */
+	if( thumbnail->size == VIPS_SIZE_UP )
+		shrink = VIPS_MIN( 1, shrink );
+	if( thumbnail->size == VIPS_SIZE_DOWN )
+		shrink = VIPS_MAX( 1, shrink );
+
+	return( shrink ); 
 }
 
 /* Find the best jpeg preload shrink.
@@ -165,7 +202,8 @@ vips_thumbnail_find_jpegshrink( VipsThumbnail *thumbnail, int width, int height 
 
 	/* Shrink-on-load is a simple block shrink and will add quite a bit of
 	 * extra sharpness to the image. We want to block shrink to a
-	 * bit above our target, then vips_resize() to the final size. 
+	 * bit above our target, then vips_shrink() / vips_reduce() to the 
+	 * final size. 
 	 *
 	 * Leave at least a factor of two for the final resize step.
 	 */
@@ -195,9 +233,8 @@ vips_thumbnail_open( VipsThumbnail *thumbnail )
 
 	if( class->get_info( thumbnail ) )
 		return( NULL );
-	vips_info( "thumbnail", "selected loader is %s", 
-		thumbnail->loader ); 
-	vips_info( "thumbnail", "input size is %d x %d", 
+	g_info( "selected loader is %s", thumbnail->loader ); 
+	g_info( "input size is %d x %d", 
 		thumbnail->input_width, thumbnail->input_height ); 
 
 	shrink = 1;
@@ -206,21 +243,18 @@ vips_thumbnail_open( VipsThumbnail *thumbnail )
 	if( vips_isprefix( "VipsForeignLoadJpeg", thumbnail->loader ) ) {
 		shrink = vips_thumbnail_find_jpegshrink( thumbnail, 
 			thumbnail->input_width, thumbnail->input_height );
-		vips_info( "thumbnail", 
-			"loading jpeg with factor %d pre-shrink", shrink ); 
+		g_info( "loading jpeg with factor %d pre-shrink", shrink ); 
 	}
 	else if( vips_isprefix( "VipsForeignLoadPdf", thumbnail->loader ) ||
 		vips_isprefix( "VipsForeignLoadSvg", thumbnail->loader ) ) {
 		scale = 1.0 / vips_thumbnail_calculate_shrink( thumbnail, 
 			thumbnail->input_width, thumbnail->input_height ); 
-		vips_info( "thumbnail", 
-			"loading PDF/SVG with factor %g pre-scale", scale ); 
+		g_info( "loading PDF/SVG with factor %g pre-scale", scale ); 
 	}
 	else if( vips_isprefix( "VipsForeignLoadWebp", thumbnail->loader ) ) {
 		shrink = vips_thumbnail_calculate_shrink( thumbnail, 
 			thumbnail->input_width, thumbnail->input_height ); 
-		vips_info( "thumbnail", 
-			"loading webp with factor %d pre-shrink", shrink ); 
+		g_info( "loading webp with factor %d pre-shrink", shrink ); 
 	}
 
 	if( !(im = class->open( thumbnail, shrink, scale )) )
@@ -269,7 +303,7 @@ vips_thumbnail_build( VipsObject *object )
 	/* RAD needs special unpacking.
 	 */
 	if( in->Coding == VIPS_CODING_RAD ) {
-		vips_info( "thumbnail", "unpacking Rad to float" );
+		g_info( "unpacking Rad to float" );
 
 		/* rad is scrgb.
 		 */
@@ -296,11 +330,9 @@ vips_thumbnail_build( VipsObject *object )
 		(vips_image_get_typeof( in, VIPS_META_ICC_NAME ) || 
 		 thumbnail->import_profile) ) {
 		if( vips_image_get_typeof( in, VIPS_META_ICC_NAME ) )
-			vips_info( "thumbnail", 
-				"importing with embedded profile" );
+			g_info( "importing with embedded profile" );
 		else
-			vips_info( "thumbnail", 
-				"importing with profile %s", 
+			g_info( "importing with profile %s", 
 				thumbnail->import_profile );
 
 		if( vips_icc_import( in, &t[1], 
@@ -317,7 +349,7 @@ vips_thumbnail_build( VipsObject *object )
 
 	/* To the processing colourspace. This will unpack LABQ as well.
 	 */
-	vips_info( "thumbnail", "converting to processing space %s",
+	g_info( "converting to processing space %s",
 		vips_enum_nick( VIPS_TYPE_INTERPRETATION, interpretation ) ); 
 	if( vips_colourspace( in, &t[2], interpretation, NULL ) ) 
 		return( -1 ); 
@@ -328,7 +360,7 @@ vips_thumbnail_build( VipsObject *object )
 	 */
 	have_premultiplied = FALSE;
 	if( vips_image_hasalpha( in ) ) { 
-		vips_info( "thumbnail", "premultiplying alpha" ); 
+		g_info( "premultiplying alpha" ); 
 		if( vips_premultiply( in, &t[3], NULL ) ) 
 			return( -1 );
 		have_premultiplied = TRUE;
@@ -353,7 +385,7 @@ vips_thumbnail_build( VipsObject *object )
 	in = t[4];
 
 	if( have_premultiplied ) {
-		vips_info( "thumbnail", "unpremultiplying alpha" ); 
+		g_info( "unpremultiplying alpha" ); 
 		if( vips_unpremultiply( in, &t[5], NULL ) || 
 			vips_cast( t[5], &t[6], unpremultiplied_format, NULL ) )
 			return( -1 );
@@ -369,8 +401,7 @@ vips_thumbnail_build( VipsObject *object )
 	if( have_imported ) { 
 		if( thumbnail->export_profile ||
 			vips_image_get_typeof( in, VIPS_META_ICC_NAME ) ) {
-			vips_info( "thumbnail", 
-				"exporting to device space with a profile" );
+			g_info( "exporting to device space with a profile" );
 			if( vips_icc_export( in, &t[7], 
 				"output_profile", thumbnail->export_profile,
 				NULL ) )  
@@ -378,7 +409,7 @@ vips_thumbnail_build( VipsObject *object )
 			in = t[7];
 		}
 		else {
-			vips_info( "thumbnail", "converting to sRGB" );
+			g_info( "converting to sRGB" );
 			if( vips_colourspace( in, &t[7], 
 				VIPS_INTERPRETATION_sRGB, NULL ) ) 
 				return( -1 ); 
@@ -390,23 +421,20 @@ vips_thumbnail_build( VipsObject *object )
 		 thumbnail->import_profile) ) {
 		VipsImage *out;
 
-		vips_info( "thumbnail", 
-			"exporting with profile %s", thumbnail->export_profile );
+		g_info( "exporting with profile %s", thumbnail->export_profile );
 
 		/* We first try with the embedded profile, if any, then if
 		 * that fails try again with the supplied fallback profile.
 		 */
 		out = NULL; 
 		if( vips_image_get_typeof( in, VIPS_META_ICC_NAME ) ) {
-			vips_info( "thumbnail", 
-				"importing with embedded profile" );
+			g_info( "importing with embedded profile" );
 
 			if( vips_icc_transform( in, &t[7], 
 				thumbnail->export_profile,
 				"embedded", TRUE,
 				NULL ) ) {
-				vips_warn( "thumbnail", 
-					_( "unable to import with "
+				g_warning( _( "unable to import with "
 						"embedded profile: %s" ),
 					vips_error_buffer() );
 
@@ -418,8 +446,7 @@ vips_thumbnail_build( VipsObject *object )
 
 		if( !out &&
 			thumbnail->import_profile ) { 
-			vips_info( "thumbnail", 
-				"importing with fallback profile" );
+			g_info( "importing with fallback profile" );
 
 			if( vips_icc_transform( in, &t[7], 
 				thumbnail->export_profile,
@@ -438,23 +465,11 @@ vips_thumbnail_build( VipsObject *object )
 			in = out;
 	}
 
-	if( thumbnail->crop ) {
-		int left = (in->Xsize - thumbnail->width) / 2;
-		int top = (in->Ysize - thumbnail->height) / 2;
-
-		vips_info( "thumbnail", "cropping to %dx%d",
-			thumbnail->width, thumbnail->height ); 
-		if( vips_extract_area( in, &t[8], left, top, 
-			thumbnail->width, thumbnail->height, NULL ) )
-			return( -1 ); 
-		in = t[8];
-	}
-
 	if( thumbnail->auto_rotate &&
 		thumbnail->angle != VIPS_ANGLE_D0 ) {
 		VipsAngle angle = vips_autorot_get_angle( in );
 
-		vips_info( "thumbnail", "rotating by %s", 
+		g_info( "rotating by %s", 
 			vips_enum_nick( VIPS_TYPE_ANGLE, angle ) ); 
 
 		/* Need to copy to memory, we have to stay seq.
@@ -465,6 +480,25 @@ vips_thumbnail_build( VipsObject *object )
 		in = t[10];
 
 		vips_autorot_remove_angle( in );
+	}
+
+	/* Crop after rotate so we don't need to rotate the crop box.
+	 */
+	if( thumbnail->crop != VIPS_INTERESTING_NONE ) {
+		g_info( "cropping to %dx%d",
+			thumbnail->width, thumbnail->height ); 
+
+		/* Need to copy to memory, we have to stay seq.
+		 *
+		 * FIXME ... could skip the copy if we've rotated.
+		 */
+		if( !(t[8] = vips_image_copy_memory( in )) ||
+			vips_smartcrop( t[8], &t[11], 
+				thumbnail->width, thumbnail->height, 
+				"interesting", thumbnail->crop,
+				NULL ) )
+			return( -1 ); 
+		in = t[11];
 	}
 
 	g_object_set( thumbnail, "out", vips_image_new(), NULL ); 
@@ -481,6 +515,8 @@ vips_thumbnail_class_init( VipsThumbnailClass *class )
 	GObjectClass *gobject_class = G_OBJECT_CLASS( class );
 	VipsObjectClass *vobject_class = VIPS_OBJECT_CLASS( class );
 
+	gobject_class->dispose = vips_thumbnail_dispose;
+	gobject_class->finalize = vips_thumbnail_finalize;
 	gobject_class->set_property = vips_object_set_property;
 	gobject_class->get_property = vips_object_get_property;
 
@@ -508,35 +544,42 @@ vips_thumbnail_class_init( VipsThumbnailClass *class )
 		G_STRUCT_OFFSET( VipsThumbnail, height ),
 		1, VIPS_MAX_COORD, 1 );
 
-	VIPS_ARG_BOOL( class, "auto_rotate", 114, 
+	VIPS_ARG_ENUM( class, "size", 114, 
+		_( "size" ), 
+		_( "Only upsize, only downsize, or both" ),
+		VIPS_ARGUMENT_OPTIONAL_INPUT,
+		G_STRUCT_OFFSET( VipsThumbnail, size ),
+		VIPS_TYPE_SIZE, VIPS_SIZE_BOTH ); 
+
+	VIPS_ARG_BOOL( class, "auto_rotate", 115, 
 		_( "Auto rotate" ), 
 		_( "Use orientation tags to rotate image upright" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsThumbnail, auto_rotate ),
 		TRUE ); 
 
-	VIPS_ARG_BOOL( class, "crop", 115, 
+	VIPS_ARG_ENUM( class, "crop", 116, 
 		_( "Crop" ), 
 		_( "Reduce to fill target rectangle, then crop" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsThumbnail, crop ),
-		FALSE ); 
+		VIPS_TYPE_INTERESTING, VIPS_INTERESTING_NONE ); 
 
-	VIPS_ARG_BOOL( class, "linear", 116, 
+	VIPS_ARG_BOOL( class, "linear", 117, 
 		_( "Linear" ), 
 		_( "Reduce in linear light" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsThumbnail, linear ),
 		FALSE ); 
 
-	VIPS_ARG_STRING( class, "import_profile", 117, 
+	VIPS_ARG_STRING( class, "import_profile", 118, 
 		_( "Import profile" ), 
 		_( "Fallback import profile" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET( VipsThumbnail, import_profile ),
 		NULL ); 
 
-	VIPS_ARG_STRING( class, "export_profile", 118, 
+	VIPS_ARG_STRING( class, "export_profile", 119, 
 		_( "Export profile" ), 
 		_( "Fallback export profile" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
@@ -573,7 +616,7 @@ vips_thumbnail_file_get_info( VipsThumbnail *thumbnail )
 
 	VipsImage *image;
 
-	vips_info( "thumbnail", "thumbnailing %s", file->filename ); 
+	g_info( "thumbnailing %s", file->filename ); 
 
 	if( !(thumbnail->loader = vips_foreign_find_load( file->filename )) ||
 		!(image = vips_image_new_from_file( file->filename, NULL )) )
@@ -654,8 +697,9 @@ vips_thumbnail_file_init( VipsThumbnailFile *file )
  * Optional arguments:
  *
  * * @height: %gint, target height in pixels
+ * * @size: #VipsSize, upsize, downsize or both
  * * @auto_rotate: %gboolean, rotate upright using orientation tag
- * * @crop: %gboolean, shrink and crop to fill target
+ * * @crop: #VipsInteresting, shrink and crop to fill target
  * * @linear: %gboolean, perform shrink in linear light
  * * @import_profile: %gchararray, fallback import ICC profile
  * * @export_profile: %gchararray, export ICC profile
@@ -669,10 +713,18 @@ vips_thumbnail_file_init( VipsThumbnailFile *file )
  * See vips_thumbnail_buffer() to thumbnail from a memory source. 
  *
  * The output image will fit within a square of size @width x @width. You can
- * specify a height with the @height option. 
+ * specify a separate height with the @height option. 
  *
  * If you set @crop, then the output image will fill the whole of the @width x
- * @height rectangle, with any excess cropped away.
+ * @height rectangle, with any excess cropped away. See vips_smartcrop() for
+ * details on the cropping strategy.
+ *
+ * Normally the operation will upsize or downsize as required. If @size is set
+ * to #VIPS_SIZE_UP, the operation will only upsize and will just
+ * copy if asked to downsize. 
+ * If @size is set
+ * to #VIPS_SIZE_DOWN, the operation will only downsize and will just
+ * copy if asked to upsize. 
  *
  * Normally any orientation tags on the input image (such as EXIF tags) are
  * interpreted to rotate the image upright. If you set @auto_rotate to %FALSE,
@@ -726,8 +778,7 @@ vips_thumbnail_buffer_get_info( VipsThumbnail *thumbnail )
 
 	VipsImage *image;
 
-	vips_info( "thumbnail", "thumbnailing %zd bytes of data", 
-		buffer->buf->length ); 
+	g_info( "thumbnailing %zd bytes of data", buffer->buf->length ); 
 
 	if( !(thumbnail->loader = vips_foreign_find_load_buffer( 
 			buffer->buf->data, buffer->buf->length )) ||
@@ -815,8 +866,9 @@ vips_thumbnail_buffer_init( VipsThumbnailBuffer *buffer )
  * Optional arguments:
  *
  * * @height: %gint, target height in pixels
+ * * @size: #VipsSize, upsize, downsize or both
  * * @auto_rotate: %gboolean, rotate upright using orientation tag
- * * @crop: %gboolean, shrink and crop to fill target
+ * * @crop: #VipsInteresting, shrink and crop to fill target
  * * @linear: %gboolean, perform shrink in linear light
  * * @import_probuffer: %gchararray, fallback import ICC probuffer
  * * @export_probuffer: %gchararray, export ICC probuffer

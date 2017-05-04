@@ -452,6 +452,9 @@ VipsImage *vips_image_new_matrix_from_array( int width, int height,
 	const double *array, int size );
 VipsImage *vips_image_matrix_from_array( int width, int height, 
 	const double *array, int size );
+VipsImage *vips_image_new_from_image( VipsImage *image, const double *c, int n );
+VipsImage *vips_image_new_from_image1( VipsImage *image, double c );
+
 void vips_image_set_delete_on_close( VipsImage *image, 
 	gboolean delete_on_close );
 guint64 vips_get_disc_threshold( void );
@@ -505,6 +508,12 @@ VipsArrayImage *vips_array_image_append( VipsArrayImage *array,
 VipsImage **vips_array_image_get( VipsArrayImage *array, int *n );
 VipsImage **vips_value_get_array_image( const GValue *value, int *n );
 void vips_value_set_array_image( GValue *value, int n );
+
+/* Defined in reorder.c, but really a function on image.
+ */
+int vips_reorder_prepare_many( VipsImage *image, 
+	struct _VipsRegion **regions, VipsRect *r );
+void vips_reorder_margin_hint( VipsImage *image, int margin );
 
 #ifdef __cplusplus
 }

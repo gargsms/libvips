@@ -169,14 +169,6 @@ typedef VipsForeignLoadJpegClass VipsForeignLoadJpegFileClass;
 G_DEFINE_TYPE( VipsForeignLoadJpegFile, vips_foreign_load_jpeg_file, 
 	vips_foreign_load_jpeg_get_type() );
 
-static VipsForeignFlags
-vips_foreign_load_jpeg_file_get_flags_filename( const char *filename )
-{
-	/* The jpeg reader supports sequential read.
-	 */
-	return( VIPS_FOREIGN_SEQUENTIAL );
-}
-
 static gboolean
 vips_foreign_load_jpeg_file_is_a( const char *filename )
 {
@@ -190,7 +182,7 @@ vips_foreign_load_jpeg_file_header( VipsForeignLoad *load )
 	VipsForeignLoadJpegFile *file = (VipsForeignLoadJpegFile *) load;
 
 	if( vips__jpeg_read_file( file->filename, load->out, 
-		TRUE, jpeg->shrink, load->fail, FALSE, jpeg->autorotate ) ) 
+		TRUE, jpeg->shrink, load->fail, jpeg->autorotate ) ) 
 		return( -1 );
 
 	return( 0 );
@@ -203,8 +195,7 @@ vips_foreign_load_jpeg_file_load( VipsForeignLoad *load )
 	VipsForeignLoadJpegFile *file = (VipsForeignLoadJpegFile *) load;
 
 	if( vips__jpeg_read_file( file->filename, load->real, 
-		FALSE, jpeg->shrink, load->fail,
-		load->access == VIPS_ACCESS_SEQUENTIAL, jpeg->autorotate ) )
+		FALSE, jpeg->shrink, load->fail, jpeg->autorotate ) )
 		return( -1 );
 
 	return( 0 );
@@ -232,8 +223,6 @@ vips_foreign_load_jpeg_file_class_init( VipsForeignLoadJpegFileClass *class )
 	 */
 	foreign_class->priority = 50;
 
-	load_class->get_flags_filename = 
-		vips_foreign_load_jpeg_file_get_flags_filename;
 	load_class->is_a = vips_foreign_load_jpeg_file_is_a;
 	load_class->header = vips_foreign_load_jpeg_file_header;
 	load_class->load = vips_foreign_load_jpeg_file_load;
@@ -272,8 +261,7 @@ vips_foreign_load_jpeg_buffer_header( VipsForeignLoad *load )
 	VipsForeignLoadJpegBuffer *buffer = (VipsForeignLoadJpegBuffer *) load;
 
 	if( vips__jpeg_read_buffer( buffer->buf->data, buffer->buf->length, 
-		load->out, TRUE, jpeg->shrink, load->fail, FALSE, 
-		jpeg->autorotate ) )
+		load->out, TRUE, jpeg->shrink, load->fail, jpeg->autorotate ) )
 		return( -1 );
 
 	return( 0 );
@@ -286,8 +274,7 @@ vips_foreign_load_jpeg_buffer_load( VipsForeignLoad *load )
 	VipsForeignLoadJpegBuffer *buffer = (VipsForeignLoadJpegBuffer *) load;
 
 	if( vips__jpeg_read_buffer( buffer->buf->data, buffer->buf->length, 
-		load->real, FALSE, jpeg->shrink, load->fail,
-		load->access == VIPS_ACCESS_SEQUENTIAL, jpeg->autorotate ) )
+		load->real, FALSE, jpeg->shrink, load->fail, jpeg->autorotate ) )
 		return( -1 );
 
 	return( 0 );

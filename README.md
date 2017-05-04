@@ -5,7 +5,7 @@
 
 libvips is a 2D image processing library. Compared to
 similar libraries, [libvips runs quickly and uses little
-memory](http://www.vips.ecs.soton.ac.uk/index.php?title=Speed_and_Memory_Use).
+memory](https://github.com/jcupitt/libvips/wiki/Speed-and-memory-use).
 libvips is licensed under the LGPL 2.1+.
 
 It has around 300 operations covering arithmetic, histograms,
@@ -17,18 +17,20 @@ PDF, SVG, HDR, PPM, CSV, GIF, Analyze, DeepZoom, and OpenSlide.  It can
 also load images via ImageMagick or GraphicsMagick.
 
 It has APIs for
-[C](http://www.vips.ecs.soton.ac.uk/supported/current/doc/html/libvips/using-from-c.html)
+[C](http://jcupitt.github.io/libvips/API/current/using-from-c.html)
 and
-[C++](http://www.vips.ecs.soton.ac.uk/supported/current/doc/html/libvips/using-from-cpp.html)
+[C++](http://jcupitt.github.io/libvips/API/current/using-from-cpp.html)
 and comes with a [Python
-binding](http://www.vips.ecs.soton.ac.uk/supported/current/doc/html/libvips/using-from-python.html)
+binding](http://jcupitt.github.io/libvips/API/current/using-from-python.html)
 and a [command-line
-interface](http://www.vips.ecs.soton.ac.uk/supported/current/doc/html/libvips/using-cli.html).
+interface](http://jcupitt.github.io/libvips/API/current/using-cli.html).
 Bindings are available for [Ruby](https://rubygems.org/gems/ruby-vips),
+[PHP](https://github.com/jcupitt/php-vips),
+[Go](https://github.com/davidbyttow/govips),
 JavaScript and others. There is full
-[documentation](http://www.vips.ecs.soton.ac.uk/supported/current/doc/html/libvips/index.html).
+[documentation](http://jcupitt.github.io/libvips/API/current).
 There are several GUIs as well, see the [VIPS
-website](http://www.vips.ecs.soton.ac.uk).
+website](http://jcupitt.github.io/libvips).
 
 There are packages for most unix-like operating systems and binaries for
 Windows and OS X.
@@ -37,17 +39,17 @@ Windows and OS X.
 
 We keep pre-baked tarballs of releases on the vips website:
 
-http://www.vips.ecs.soton.ac.uk/supported/current/
+https://github.com/jcupitt/libvips/releases
 
 Untar, then in the libvips directory you should just be able to do:
 
 	$ ./configure
 
 Check the summary at the end of `configure` carefully. 
-libvips must have `build-essential`, `pkg-config`, `glib2.0-dev`, and 
-`libxml2-dev`. 
+libvips must have `build-essential`, `pkg-config`, `glib2.0-dev`,
+`libexpat1-dev`.
 
-For the vips8 Python binding, you must have 
+For the vips8 Python binding, you must also have 
 `gobject-introspection`, `python-gi-dev`, and `libgirepository1.0-dev`.
 
 You'll need the dev packages for the file format support you
@@ -63,9 +65,9 @@ Once `configure` is looking OK, compile and install with the usual:
 By default this will install files to `/usr/local`.
 
 We have detailed guides on the wiki for [building on
-Windows](http://www.vips.ecs.soton.ac.uk/index.php?title=Build_on_windows)
+Windows](https://github.com/jcupitt/libvips/wiki/Build_for_Windows)
 and [building on OS
-X](http://www.vips.ecs.soton.ac.uk/index.php?title=Build_on_OS_X).
+X](https://github.com/jcupitt/libvips/wiki/Build_on_OS_X).
 
 # Building libvips from git
 
@@ -110,7 +112,7 @@ Clang build:
 
 Clang static analysis:
 
-	$ scan-build ./configure --disable-introspection
+	$ scan-build ./configure --disable-introspection --disable-debug
 	$ scan-build -o scan -v make 
 	$ scan-view scan/2013-11-22-2
 
@@ -123,12 +125,15 @@ Clang dynamic analysis:
 		./configure --prefix=/home/john/vips 
 
 	$ FLAGS="-O1 -g -fsanitize=thread"
-	$ FLAGS="$FLAGS -fPIC -pie"
+	$ FLAGS="$FLAGS -fPIC"
 	$ FLAGS="$FLAGS -fno-omit-frame-pointer -fno-optimize-sibling-calls"
 	$ CC=clang CXX=clang++ LD=clang \
 		CFLAGS="$FLAGS" CXXFLAGS="$FLAGS" \
-		LDFLAGS="-fsanitize=thread -fPIC -pie" \
-		./configure --prefix=/home/john/vips 
+		LDFLAGS="-fsanitize=thread -fPIC" \
+		./configure --prefix=/home/john/vips \
+			--without-magick \
+			--disable-introspection
+	$ G_DEBUG=gc-friendly vips copy ~/pics/k2.jpg x.jpg >& log
 
 Build with the GCC auto-vectorizer and diagnostics (or just -O3):
 
@@ -143,8 +148,7 @@ Static analysis with:
 
 # Dependencies 
 
-libvips has to have `gettext`, `glib2.0-dev` and `libxml2-dev`. Other
-dependencies are optional, see below.
+libvips has to have `glib2.0-dev`. Other dependencies are optional, see below.
 
 # Optional dependencies
 

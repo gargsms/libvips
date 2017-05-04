@@ -373,11 +373,17 @@ vips_math2_const_buffer( VipsArithmetic *arithmetic,
 	int i, x, b;
 
 	switch( math2->math2 ) {
-	case VIPS_OPERATION_MATH2_POW: 	SWITCH( LOOPC, POW ); break;
-	case VIPS_OPERATION_MATH2_WOP: 	SWITCH( LOOPC, WOP ); break;
+	case VIPS_OPERATION_MATH2_POW: 	
+		SWITCH( LOOPC, POW ); 
+		break;
+
+	case VIPS_OPERATION_MATH2_WOP: 	
+		SWITCH( LOOPC, WOP ); 
+		break;
 
         default:
 		g_assert_not_reached();
+		break;
         }
 }
 

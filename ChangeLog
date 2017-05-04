@@ -1,3 +1,31 @@
+15/4/17 started 8.6.0
+- supports fits images with leading non-image HDUs, thanks benepo
+- add vips_image_new_from_image() and vips_image_new_from_image1() ... make a
+  constant image
+- add new_from_image() to Python as well
+- slight change to cpp new_from_image() to match py/C behaviour
+
+23/4/17 started 8.5.5
+- doc polishing
+- more improvements for tuncated PNG files, thanks juyunsang 
+
+23/4/17 started 8.5.4
+- don't depend on image width when setting n_lines, thanks kleisauke
+
+7/4/17 started 8.5.3
+- more link fixing in docs 
+- revise cache sizing again to help out of order errors under heavy load, thanks
+  kleisauke
+
+25/3/17 started 8.5.2
+- better behaviour for truncated PNG files, thanks Yury
+- missing proto for vips_tiffsave_buffer(), thanks greut
+- move some docs from the wiki and blog into core libvips docs
+- add support for markdown in docs
+
+25/3/17 started 8.5.1
+- init more classes earlier, thanks David
+
 13/10/16 started 8.5.0
 - rewritten buffer system is safer and frees memory earlier
 - added tiff save to buffer
@@ -6,6 +34,7 @@
 - better vipsheader behaviour with complex field types
 - added vips_image_hasalpha()
 - added vips_thumbnail() / vips_thumbnail_buffer()
+- webpload/webpsave read and write icc, xmp, exif metadata
 - better >4gb detect for zip dzsave output [Felix Bünemann]
 - all loaders have a @fail option, meaning fail on first warning, though it
   only does anything for jpg and csv
@@ -14,6 +43,30 @@
 - add VIPS_META_PAGE_HEIGHT metadata
 - IM6/IM7 magickload supports page/n/page-height, all_frames deprecated
 - gifload supports n/page-height
+- added #defines for VIPS_SONAME, VIPS_LIBRARY_CURRENT, VIPS_LIBRARY_REVISION,
+  VIPS_LIBRARY_AGE
+- better support for bscale / bzero in fits images
+- deprecate vips_warn() / vips_info(); use g_warning() / g_info() instead
+- vipsthumbnail supports much fancier geometry strings, thanks tomasc
+- vips_thumbnail() has new @size option
+- fix --vips-cache-max etc. 
+- add compute reordering, plus some new API to support it:
+  vips_reorder_margin_hint() and vips_reorder_prepare_many(), thanks
+  aferrero2707
+- kick load operations from cache on read error, thanks gaillard 
+- fix return from C++ assignment operator overloads (+=, -= etc) 
+- add @max_slope to vips_hist_local() to implement CLAHE, thanks hunter-87
+- vips_gaussnoise() pixels are reproducible on recalc, thanks MvGulik
+- max/min sort values by y and x coordinate
+- tiff read uses libtiff scanline API if rows-per-strip is large
+- vips_region_shrink() knows about alpha, helps dzsave and tiffsave
+- use expat, not libxml, for XML load ... removes a required dependency, since
+  we get expat as part of glib
+- new sequential mode infrastructure is faster and more flexible
+- add vips_smartcrop(), based on sharp's smartcropper
+- vipsthumbnail has a --smartcrop option
+- added vips_rot90() etc. convenience functions
+- fix vips_resize() bug when hscale and vscale were very different
 
 8/12/16 started 8.4.5
 - allow libgsf-1.14.26 to help centos, thanks tdiprima

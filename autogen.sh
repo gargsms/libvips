@@ -16,7 +16,7 @@ rm -f m4/gtk-doc.m4
 
 rm -f config.* configure depcomp
 rm -f install-sh intltool-* libtool ltmain.sh missing mkinstalldirs
-rm -f stamp-* vipsCC-7.19.pc vips-7.19.spec vips-7.19.pc
+rm -f stamp-* 
 rm -f swig/vipsCC/*.cxx
 rm -f swig/vipsCC/VImage.h
 rm -f swig/vipsCC/VImage.py python/vipsCC/VError.py python/vipsCC/VMask.py python/vipsCC/Display.py
@@ -27,6 +27,8 @@ find doc -depth \( \
    -o -path 'doc/images/*' \
    -o -name '*.xml' ! -name libvips-docs.xml ! -path 'doc/xml/*' \
    -o -name '*.py' \
+   -o -name '*.md' \
+   -o -name '*.docbook' \
 \) -prune -or \( \
       -type f \
    -o -type d -empty \

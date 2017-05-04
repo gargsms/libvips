@@ -85,6 +85,11 @@
  * 	- use scRGB as the working space in linear mode
  * 15/8/16
  * 	- can now remove 0.1 rounding adjustment
+ * 2/11/16
+ * 	- use vips_thumbnail(), most code moved there
+ * 6/1/17
+ * 	- fancy geometry strings
+ * 	- support VipSize restrictions
  */
 
 #ifdef HAVE_CONFIG_H
@@ -97,6 +102,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <locale.h>
+#include <ctype.h>
 
 #include <vips/vips.h>
 #include <vips/internal.h>
@@ -108,12 +114,14 @@
 static char *thumbnail_size = "128";
 static int thumbnail_width = 128;
 static int thumbnail_height = 128;
+static VipsSize size_restriction = VIPS_SIZE_BOTH;
 static char *output_format = "tn_%s.jpg";
 static char *export_profile = NULL;
 static char *import_profile = NULL;
 static gboolean delete_profile = FALSE;
 static gboolean linear_processing = FALSE;
 static gboolean crop_image = FALSE;
+static char *smartcrop_image = NULL;
 static gboolean rotate_image = FALSE;
 
 /* Deprecated and unused.
@@ -138,19 +146,20 @@ static GOptionEntry options[] = {
 		N_( "set output format string to FORMAT" ), 
 		N_( "FORMAT" ) },
 	{ "eprofile", 'e', 0, 
-		G_OPTION_ARG_STRING, &export_profile, 
+		G_OPTION_ARG_FILENAME, &export_profile, 
 		N_( "export with PROFILE" ), 
 		N_( "PROFILE" ) },
 	{ "iprofile", 'i', 0, 
-		G_OPTION_ARG_STRING, &import_profile, 
+		G_OPTION_ARG_FILENAME, &import_profile, 
 		N_( "import untagged images with PROFILE" ), 
 		N_( "PROFILE" ) },
 	{ "linear", 'a', 0, 
 		G_OPTION_ARG_NONE, &linear_processing, 
 		N_( "process in linear space" ), NULL },
-	{ "crop", 'c', 0, 
-		G_OPTION_ARG_NONE, &crop_image, 
-		N_( "crop exactly to SIZE" ), NULL },
+	{ "smartcrop", 'm', 0, 
+		G_OPTION_ARG_STRING, &smartcrop_image, 
+		N_( "shrink and crop to fill SIZE using STRATEGY" ), 
+		N_( "STRATEGY" ) },
 	{ "rotate", 't', 0, 
 		G_OPTION_ARG_NONE, &rotate_image, 
 		N_( "auto-rotate" ), NULL },
@@ -158,6 +167,9 @@ static GOptionEntry options[] = {
 		G_OPTION_ARG_NONE, &delete_profile, 
 		N_( "delete profile from exported image" ), NULL },
 
+	{ "crop", 'c', G_OPTION_FLAG_HIDDEN, 
+		G_OPTION_ARG_NONE, &crop_image, 
+		N_( "(deprecated, crop exactly to SIZE)" ), NULL },
 	{ "verbose", 'v', G_OPTION_FLAG_HIDDEN, 
 		G_OPTION_ARG_NONE, &verbose, 
 		N_( "(deprecated, does nothing)" ), NULL },
@@ -213,8 +225,7 @@ thumbnail_write( VipsObject *process, VipsImage *im, const char *filename )
 		g_free( dir );
 	}
 
-	vips_info( "vipsthumbnail", 
-		"thumbnailing %s as %s", filename, output_name );
+	g_info( "thumbnailing %s as %s", filename, output_name );
 
 	g_free( file );
 
@@ -230,24 +241,124 @@ thumbnail_write( VipsObject *process, VipsImage *im, const char *filename )
 static int
 thumbnail_process( VipsObject *process, const char *filename )
 {
-	VipsImage *in;
+	VipsInteresting interesting;
+	VipsImage *image;
 
-	if( vips_thumbnail( filename, &in, thumbnail_width, 
+	interesting = VIPS_INTERESTING_NONE;
+	if( crop_image )
+		interesting = VIPS_INTERESTING_CENTRE;
+	if( smartcrop_image ) {
+		int n;
+		
+		if( (n = vips_enum_from_nick( "vipsthumbnail", 
+			VIPS_TYPE_INTERESTING, smartcrop_image )) < 0 ) 
+			return( -1 ); 
+		interesting = n;
+	}
+
+	if( vips_thumbnail( filename, &image, thumbnail_width, 
 		"height", thumbnail_height, 
+		"size", size_restriction, 
 		"auto_rotate", rotate_image, 
-		"crop", crop_image, 
+		"crop", interesting, 
 		"linear", linear_processing, 
 		"import_profile", import_profile, 
 		"export_profile", export_profile, 
 		NULL ) )
 		return( -1 );
 
-	if( thumbnail_write( process, in, filename ) ) {
-		g_object_unref( in ); 
+	if( thumbnail_write( process, image, filename ) ) {
+		g_object_unref( image ); 
 		return( -1 );
 	}
 
-	g_object_unref( in ); 
+	g_object_unref( image ); 
+
+	return( 0 );
+}
+
+/* Parse a geometry string and set thumbnail_width and thumbnail_height.
+ */
+static int
+thumbnail_parse_geometry( const char *geometry )
+{
+	/* Geometry strings have a regex like:
+	 *
+	 * 	^(\\d+)? (x)? (\\d+)? ([<>])?$
+	 *
+	 * Sadly GRegex is 2.14 and later, and we need to work with 2.6.
+	 */
+
+	const char *p;
+
+	/* w or h missing means replace with a huuuge value to prevent 
+	 * reduction or enlargement in that axis.
+	 */
+	thumbnail_width = VIPS_MAX_COORD;
+	thumbnail_height = VIPS_MAX_COORD;
+
+	p = geometry;
+
+	/* Get the width. 
+	 */
+	while( isspace( *p ) )
+		p++;
+	if( isdigit ( *p ) ) {
+		/* We have a number! vipsthumbnail history means that "-s 200"
+		 * means "200x200", not "200xhuge"
+		 */
+		thumbnail_width = thumbnail_height = atoi( p );
+
+		/* And skip over it.
+		 */
+		while( isdigit( *p ) )
+			p++;
+	}
+
+	/* Get the optional 'x'. 
+	 */
+	while( isspace( *p ) )
+		p++;
+	if( *p == 'x' ) 
+		p += 1;
+	while( isspace( *p ) )
+		p++;
+
+	/* Get the height. 
+	 */
+	if( isdigit( *p ) ) {
+		thumbnail_height = atoi( p );
+
+		while( isdigit( *p ) )
+			p++;
+	}
+
+	/* Get the final < or >.
+	 */
+	while( isspace( *p ) )
+		p++;
+	if( *p == '<' ) 
+		size_restriction = VIPS_SIZE_UP;
+	else if( *p == '>' ) 
+		size_restriction = VIPS_SIZE_DOWN;
+	else if( *p != '\0' ||
+		(thumbnail_width == VIPS_MAX_COORD && 
+			thumbnail_height == VIPS_MAX_COORD) ) {
+		vips_error( "thumbnail", "%s", _( "bad geometry spec" ) ); 
+		return( -1 );
+	}
+
+	/* If --crop is set, both width and height must be specified,
+	 * since we'll need a complete bounding box to fill.
+	 */
+	if( (crop_image || smartcrop_image) &&
+		(thumbnail_width == VIPS_MAX_COORD ||
+			thumbnail_height == VIPS_MAX_COORD) ) {
+		vips_error( "thumbnail",
+			"both width and height must be given if "
+			"crop is enabled" );
+		return( -1 );
+	}
 
 	return( 0 );
 }
@@ -265,6 +376,10 @@ main( int argc, char **argv )
 	        vips_error_exit( "unable to start VIPS" );
 	textdomain( GETTEXT_PACKAGE );
 	setlocale( LC_ALL, "" );
+
+	/* The operation cache is not useful for processing many files.
+	vips_cache_set_max( 0 );
+	 */
 
 	/* On Windows, argv is ascii-only .. use this to get a utf-8 version of
 	 * the args.
@@ -297,22 +412,16 @@ main( int argc, char **argv )
 
 	g_option_context_free( context );
 
-	if( sscanf( thumbnail_size, "%d x %d", 
-		&thumbnail_width, &thumbnail_height ) != 2 ) {
-		if( sscanf( thumbnail_size, "%d", &thumbnail_width ) != 1 ) 
-			vips_error_exit( "unable to parse size \"%s\" -- "
-				"use eg. 128 or 200x300", thumbnail_size );
+	if( thumbnail_size && 
+		thumbnail_parse_geometry( thumbnail_size ) )
+		vips_error_exit( NULL ); 
 
-		thumbnail_height = thumbnail_width;
-	}
-
-	if( rotate_image ) {
 #ifndef HAVE_EXIF
-		vips_warn( "vipsthumbnail", "%s",
+	if( rotate_image ) 
+		g_warning( "%s",
 			_( "auto-rotate disabled: "
 			      "libvips built without exif support" ) );
 #endif /*!HAVE_EXIF*/
-	}
 
 	result = 0;
 

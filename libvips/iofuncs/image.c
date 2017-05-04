@@ -119,7 +119,7 @@
  * to formatted memory buffers (with vips_image_write_to_buffer()) and to
  * C-style memory arrays (with vips_image_write_to_memory().
  *
- * You can also write image to other images. Create, for example, a temporary
+ * You can also write images to other images. Create, for example, a temporary
  * disc image with vips_image_new_temp_file(), then write your image to that
  * with vips_image_write(). You can create several other types of image and
  * write to them, see vips_image_new_memory(), for example. 
@@ -147,7 +147,6 @@
  * VipsAccess:
  * @VIPS_ACCESS_RANDOM: can read anywhere
  * @VIPS_ACCESS_SEQUENTIAL: top-to-bottom reading only, but with a small buffer
- * @VIPS_ACCESS_SEQUENTIAL_UNBUFFERED: top-to-bottom reading only
  *
  * The type of access an operation has to supply. See vips_tilecache()
  * and #VipsForeign. 
@@ -156,9 +155,6 @@
  *
  * @VIPS_ACCESS_SEQUENTIAL means requests will be top-to-bottom, but with some
  * amount of buffering behind the read point for small non-local accesses. 
- *
- * @VIPS_ACCESS_SEQUENTIAL_UNBUFFERED means requests will be strictly
- * top-to-bottom with no read-behind. This can save some memory. 
  */
 
 /** 
@@ -775,18 +771,18 @@ vips_image_preeval_cb( VipsImage *image, VipsProgress *progress, int *last )
 {
 	int tile_width; 
 	int tile_height; 
-	int nlines;
+	int n_lines;
 
 	*last = -1;
 
 	vips_get_tile_size( image, 
-		&tile_width, &tile_height, &nlines );
+		&tile_width, &tile_height, &n_lines );
 	printf( _( "%s %s: %d x %d pixels, %d threads, %d x %d tiles, "
 		"%d lines in buffer" ),
 		g_get_prgname(), image->filename,
 		image->Xsize, image->Ysize,
 		vips_concurrency_get(),
-		tile_width, tile_height, nlines );
+		tile_width, tile_height, n_lines );
 	printf( "\n" );
 }
 
@@ -1006,8 +1002,7 @@ vips_image_build( VipsObject *object )
 		 * still be able to process it without coredumps.
 		 */
 		if( image->file_length > sizeof_image ) 
-			vips_warn( "VipsImage", 
-				_( "%s is longer than expected" ),
+			g_warning( _( "%s is longer than expected" ),
 				image->filename );
 		break;
 
@@ -1623,12 +1618,12 @@ vips_image_set_progress( VipsImage *image, gboolean progress )
  * vips_image_iskilled:
  * @image: image to test
  *
- * If @image has been killed (see vips_image_kill()), set an error message,
+ * If @image has been killed (see vips_image_set_kill()), set an error message,
  * clear the #VipsImage.kill flag and return %FALSE. Otherwise return %TRUE.
  *
  * Handy for loops which need to run sets of threads which can fail. 
  *
- * See also: vips_image_kill().
+ * See also: vips_image_set_kill().
  *
  * Returns: %FALSE if @image has been killed. 
  */
@@ -1857,9 +1852,7 @@ vips_filename_get_options( const char *vips_filename )
  * whole image exactly once, top-to-bottom. In this mode, vips can avoid
  * converting the whole image in one go, for a large memory saving. You are
  * allowed to make small non-local references, so area operations like 
- * convolution will work. #VIPS_ACCESS_SEQUENTIAL_UNBUFFERED does not allow
- * non-local references, so will only work for very strict top-to-bottom
- * operations, but does have very low memory needs. 
+ * convolution will work. 
  *
  * In #VIPS_ACCESS_RANDOM mode, small images are decompressed to memory and
  * then processed from there. Large images are decompressed to temporary
@@ -2300,6 +2293,80 @@ vips_image_matrix_from_array( int width, int height,
 }
 
 /**
+ * vips_image_new_from_image:
+ * @image: image to copy
+ * @c: (array length=n) (transfer none): array of constants
+ * @n: number of constants
+ *
+ * Creates a new image with width, height, format, interpretation, resolution
+ * and offset taken from @image, but with number of bands taken from @n and the
+ * value of each band element set from @c.
+ *
+ * See also: vips_image_new_from_image1()
+ *
+ * Returns: (transfer full): the new #VipsImage, or %NULL on error.
+ */
+VipsImage *
+vips_image_new_from_image( VipsImage *image, const double *c, int n )
+{
+	VipsObject *scope = (VipsObject *) vips_image_new();
+	VipsImage **t = (VipsImage **) vips_object_local_array( scope, 5 );
+
+	double *ones;
+	int i;
+	VipsImage *result;
+
+	if( !(ones = VIPS_ARRAY( scope, n, double )) ) {
+		g_object_unref( scope );
+		return( NULL );
+	}
+	for( i = 0; i < n; i++ )
+		ones[i] = 1.0;
+
+	if( vips_black( &t[0], 1, 1, NULL ) ||
+		vips_linear( t[0], &t[1], ones, (double *) c, n, NULL ) ||
+		vips_cast( t[1], &t[2], image->BandFmt, NULL ) ||
+		vips_embed( t[2], &t[3], 0, 0, image->Xsize, image->Ysize,
+			"extend", VIPS_EXTEND_COPY, NULL ) ||
+		vips_copy( t[3], &t[4], 
+			"interpretation", image->Type,
+			"xres", image->Xres,
+			"yres", image->Yres,
+			"xoffset", image->Xoffset,
+			"yoffset", image->Yoffset,
+			NULL ) ) {
+		g_object_unref( scope );
+		return( NULL );
+	}
+
+	result = t[4];
+	g_object_ref( result );
+
+	g_object_unref( scope );
+
+	return( result ); 
+}
+
+/**
+ * vips_image_new_from_image1:
+ * @image: image to copy
+ * @c: constants
+ *
+ * Creates a new image with width, height, format, interpretation, resolution
+ * and offset taken from @image, but with one band and each pixel having the
+ * value @c.
+ *
+ * See also: vips_image_new_from_image()
+ *
+ * Returns: (transfer full): the new #VipsImage, or %NULL on error.
+ */
+VipsImage *
+vips_image_new_from_image1( VipsImage *image, double c )
+{
+	return( vips_image_new_from_image( image, (const double *) &c, 1 ) );
+}
+
+/**
  * vips_image_set_delete_on_close:
  * @image: image to set
  * @delete_on_close: format of file
@@ -2590,9 +2657,8 @@ vips_image_write_to_memory( VipsImage *in, size_t *size_out )
 		vips_error( "vips_image_write_to_memory", 
 			_( "out of memory --- size == %dMB" ), 
 			(int) (size / (1024.0 * 1024.0))  );
-		vips_warn( "vips_image_write_to_memory", 
-			_( "out of memory --- size == %dMB" ), 
-			(int) (size / (1024.0*1024.0))  );
+		g_warning( _( "out of memory --- size == %dMB" ), 
+			(int) (size / (1024.0 * 1024.0))  );
 		return( NULL );
 	}
 
@@ -3143,8 +3209,7 @@ vips_image_wio_input( VipsImage *image )
 		 * generate from this image.
 		 */
 		if( image->regions ) 
-			vips_warn( "vips_image_wio_input", "%s",
-				"rewinding image with active regions" ); 
+			g_warning( "rewinding image with active regions" ); 
 
 		break;
 

@@ -78,14 +78,6 @@ extern "C" {
 #define VIPS_META_ICC_NAME "icc-profile-data"
 
 /**
- * VIPS_META_XML:
- *
- * The original XML that was used to code the metadata after reading a VIPS
- * format file.
- */
-#define VIPS_META_XML "xml-header"
-
-/**
  * VIPS_META_IMAGEDESCRIPTION:
  *
  * The IMAGEDESCRIPTION tag. Often has useful metadata. 
@@ -107,6 +99,15 @@ extern "C" {
  * and for debugging.
  */
 #define VIPS_META_LOADER "vips-loader"
+
+/**
+ * VIPS_META_SEQUENTIAL:
+ *
+ * Images loaded via vips_sequential() have this int field defined. Some
+ * operations (eg. vips_shrinkv()) add extra caches if they see it on their
+ * input. 
+ */
+#define VIPS_META_SEQUENTIAL "vips-sequential"
 
 /**
  * VIPS_META_ORIENTATION:

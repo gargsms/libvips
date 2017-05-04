@@ -12,7 +12,7 @@
       For VIPS @VIPS_VERSION@.
       The latest version of this documentation can be found on the 
       <ulink role="online-location"
-        url="http://www.vips.ecs.soton.ac.uk/index.php?title=Documentation">VIPS website</ulink>.
+        url="http://jcupitt.github.io/libvips/API/current/">VIPS website</ulink>.
     </releaseinfo>
   </bookinfo>
 
@@ -39,6 +39,13 @@
     <xi:include href="xml/function-list.xml"/>
     <xi:include href="xml/file-format.xml"/>
     <xi:include href="xml/using-threads.xml"/>
+    <xi:include href="xml/How-it-works.xml"/>
+    <xi:include href="xml/How-it-opens-files.xml"/>
+    <xi:include href="xml/Making-image-pyramids.xml"/>
+    <xi:include href="xml/Using-vipsthumbnail.xml"/>
+    <xi:include href="xml/Cite.xml"/>
+    <xi:include href="xml/Examples.xml"/>
+    <xi:include href="xml/Cite.xml"/>
   </chapter>
 
   <chapter>

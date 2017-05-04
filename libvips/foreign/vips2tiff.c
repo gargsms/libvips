@@ -168,6 +168,9 @@
  * 	- use wchar_t TIFFOpen on Windows
  * 14/10/16
  * 	- add buffer output
+ * 29/1/17
+ * 	- enable bigtiff automatically for large, uncompressed writes, thanks 
+ * 	  AndreasSchmid1 
  */
 
 /*
@@ -215,7 +218,6 @@
 #include <unistd.h>
 #endif /*HAVE_UNISTD_H*/
 #include <string.h>
-#include <libxml/parser.h>
 
 #include <vips/vips.h>
 #include <vips/internal.h>
@@ -464,8 +466,7 @@ wtiff_embed_ipct( Wtiff *wtiff, TIFF *tif )
 	 * long, not byte.
 	 */
 	if( data_length & 3 ) {
-		vips_warn( "vips2tiff", 
-			"%s", _( "rounding up IPCT data length" ) );
+		g_warning( "%s", _( "rounding up IPCT data length" ) );
 		data_length /= 4;
 		data_length += 1;
 	}
@@ -510,10 +511,10 @@ wtiff_embed_imagedescription( Wtiff *wtiff, TIFF *tif )
 	if( wtiff->properties ) {
 		char *doc;
 
-		if( !(doc = vips__make_xml_metadata( "vips2tiff", wtiff->im )) )
+		if( !(doc = vips__xml_properties( wtiff->im )) )
 			return( -1 );
 		TIFFSetField( tif, TIFFTAG_IMAGEDESCRIPTION, doc );
-		xmlFree( doc );
+		g_free( doc );
 	}
 	else {
 		const char *imagedescription;
@@ -958,8 +959,8 @@ wtiff_new( VipsImage *im, const char *filename,
 		/* We can't pyramid toilet roll images.
 		 */
 		if( wtiff->pyramid ) {
-			vips_warn( "vips2tiff",
-				"%s", _( "can't pyramid multi page images --- "
+			g_warning( "%s", 
+				_( "can't pyramid multi page images --- "
 					"disabling pyramid" ) ); 
 			wtiff->pyramid = FALSE;
 		}
@@ -995,16 +996,16 @@ wtiff_new( VipsImage *im, const char *filename,
 		(im->Coding != VIPS_CODING_NONE || 
 			im->BandFmt != VIPS_FORMAT_UCHAR ||
 			im->Bands != 1) ) {
-		vips_warn( "vips2tiff", 
-			"%s", _( "can only squash 1 band uchar images -- "
+		g_warning( "%s",
+			_( "can only squash 1 band uchar images -- "
 				"disabling squash" ) );
 		wtiff->onebit = 0;
 	}
 
 	if( wtiff->onebit && 
 		wtiff->compression == COMPRESSION_JPEG ) {
-		vips_warn( "vips2tiff", 
-			"%s", _( "can't have 1-bit JPEG -- disabling JPEG" ) );
+		g_warning( "%s", 
+			_( "can't have 1-bit JPEG -- disabling JPEG" ) );
 		wtiff->compression = COMPRESSION_NONE;
 	}
  
@@ -1014,8 +1015,8 @@ wtiff_new( VipsImage *im, const char *filename,
 		(im->Coding != VIPS_CODING_NONE || 
 			vips_band_format_iscomplex( im->BandFmt ) ||
 			im->Bands > 2) ) {
-		vips_warn( "vips2tiff", 
-			"%s", _( "can only save non-complex greyscale images "
+		g_warning( "%s", 
+			_( "can only save non-complex greyscale images "
 				"as miniswhite -- disabling miniswhite" ) );
 		wtiff->miniswhite = FALSE;
 	}
@@ -1028,6 +1029,19 @@ wtiff_new( VipsImage *im, const char *filename,
 		wtiff->tls = VIPS_ROUND_UP( wtiff->tilew, 8 ) / 8;
 	else
 		wtiff->tls = VIPS_IMAGE_SIZEOF_PEL( im ) * wtiff->tilew;
+
+	/* If compression is off and we're writing a >4gb image, automatically
+	 * enable bigtiff.
+	 *
+	 * This won't always work. If the image data is just under 4gb but
+	 * there's a lot of metadata, we could be pushed over the 4gb limit.
+	 */
+	if( wtiff->compression == COMPRESSION_NONE &&
+		VIPS_IMAGE_SIZEOF_IMAGE( wtiff->im ) > UINT_MAX && 
+		!wtiff->bigtiff ) { 
+		g_warning( "%s", _( "image over 4gb, enabling bigtiff" ) );
+		wtiff->bigtiff = TRUE;
+	}
 
 	/* Build the pyramid framework.
 	 */

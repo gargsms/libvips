@@ -331,6 +331,10 @@ wbuffer_allocate_fn( VipsThreadState *state, void *a, gboolean *stop )
 		sink_base->y += sink_base->tile_height;
 
 		if( sink_base->y >= VIPS_RECT_BOTTOM( &write->buf->area ) ) {
+			VIPS_DEBUG_MSG( "wbuffer_allocate_fn: "
+				"finished top = %d, height = %d\n",
+				write->buf->area.top, write->buf->area.height );
+
 			/* Block until the write of the previous buffer 
 			 * is done, then set write of this buffer going.
 			 */
@@ -347,12 +351,8 @@ wbuffer_allocate_fn( VipsThreadState *state, void *a, gboolean *stop )
 			}
 
 			VIPS_DEBUG_MSG( "wbuffer_allocate_fn: "
-				"finished top = %d, height = %d\n",
-				write->buf->area.top, write->buf->area.height );
-
-			VIPS_DEBUG_MSG( "wbuffer_allocate_fn: "
 				"starting top = %d, height = %d\n",
-				sink_base->y, sink_base->nlines );
+				sink_base->y, sink_base->n_lines );
 
 			/* Swap buffers.
 			 */
@@ -361,10 +361,15 @@ wbuffer_allocate_fn( VipsThreadState *state, void *a, gboolean *stop )
 			/* Position buf at the new y.
 			 */
 			if( wbuffer_position( write->buf, 
-				sink_base->y, sink_base->nlines ) ) {
+				sink_base->y, sink_base->n_lines ) ) {
 				*stop = TRUE;
 				return( -1 );
 			}
+
+			/* This will be the first tile of a new buffer ...
+			 * stall for a moment to stress the caching system.
+			 */
+			state->stall = TRUE;
 		}
 	}
 
@@ -497,7 +502,7 @@ vips_sink_disc( VipsImage *im, VipsRegionWrite write_fn, void *a )
 	result = 0;
 	if( !write.buf || 
 		!write.buf_back || 
-		wbuffer_position( write.buf, 0, write.sink_base.nlines ) ||
+		wbuffer_position( write.buf, 0, write.sink_base.n_lines ) ||
 		vips_threadpool_run( im, 
 			write_thread_state_new, 
 			wbuffer_allocate_fn, 

@@ -169,6 +169,10 @@
  * 	- add autorotate support
  * 17/11/16
  * 	- add multi-page read 
+ * 17/1/17
+ * 	- invalidate operation on read error
+ * 27/1/17
+ * 	- if rows_per_strip is large, read with scanline API instead
  */
 
 /*
@@ -244,10 +248,14 @@ typedef struct _RtiffHeader {
 	uint32 tile_height;		
 
 	/* Fields for strip images.
+	 *
+	 * If read_scanlinewise is TRUE, the strips are too large to read in a
+	 * single lump and we need to use the scanline API.
 	 */
 	uint32 rows_per_strip;
 	tsize_t strip_size;
 	int number_of_strips;
+	gboolean read_scanlinewise;
 } RtiffHeader;
 
 /* Scanline-type process function.
@@ -266,7 +274,6 @@ typedef struct _Rtiff {
 	int page;
 	int n;
 	gboolean autorotate;
-	gboolean readbehind; 
 
 	/* The TIFF we read.
 	 */
@@ -387,7 +394,7 @@ get_resolution( TIFF *tiff, VipsImage *out )
 		}
 	}
 	else {
-		vips_warn( "tiff2vips", _( "no resolution information for "
+		g_warning( _( "no resolution information for "
 			"TIFF image \"%s\" -- defaulting to 1 pixel per mm" ), 
 			TIFFFileName( tiff ) );
 		x = 1.0;
@@ -437,16 +444,23 @@ get_orientation( TIFF *tiff )
 }
 
 static int
-strip_read( TIFF *tiff, int strip, tdata_t buf )
+rtiff_strip_read( Rtiff *rtiff, int strip, tdata_t buf )
 {
 	tsize_t length;
 
 #ifdef DEBUG
-	printf( "strip_read: reading strip %d\n", strip ); 
+	printf( "rtiff_strip_read: reading strip %d\n", strip ); 
 #endif /*DEBUG*/
 
-	length = TIFFReadEncodedStrip( tiff, strip, buf, (tsize_t) -1 );
+	if( rtiff->header.read_scanlinewise )  
+		length = TIFFReadScanline( rtiff->tiff, 
+			buf, strip, (tsize_t) -1 );
+	else 
+		length = TIFFReadEncodedStrip( rtiff->tiff, 
+			strip, buf, (tsize_t) -1 );
+
 	if( length == -1 ) {
+		vips_foreign_load_invalidate( rtiff->out );
 		vips_error( "tiff2vips", "%s", _( "read error" ) );
 		return( -1 );
 	}
@@ -1041,7 +1055,7 @@ rtiff_parse_palette( Rtiff *rtiff, VipsImage *out )
 			read->blue8[i] = read->blue16[i] >> 8;
 		}
 	else {
-		vips_warn( "tiff2vips", "%s", _( "assuming 8-bit palette" ) );
+		g_warning( "%s", _( "assuming 8-bit palette" ) );
 
 		for( i = 0; i < len; i++ ) {
 			read->red8[i] = read->red16[i] & 0xff;
@@ -1238,7 +1252,9 @@ rtiff_set_header( Rtiff *rtiff, VipsImage *out )
 	/* Read any ICC profile.
 	 */
 	if( TIFFGetField( rtiff->tiff, 
-		TIFFTAG_ICCPROFILE, &data_length, &data ) ) {
+		TIFFTAG_ICCPROFILE, &data_length, &data ) &&
+		data &&
+		data_length ) {
 		void *data_copy;
 
 		if( !(data_copy = vips_malloc( NULL, data_length )) ) 
@@ -1251,7 +1267,9 @@ rtiff_set_header( Rtiff *rtiff, VipsImage *out )
 	/* Read any XMP metadata.
 	 */
 	if( TIFFGetField( rtiff->tiff, 
-		TIFFTAG_XMLPACKET, &data_length, &data ) ) {
+		TIFFTAG_XMLPACKET, &data_length, &data ) &&
+		data &&
+		data_length ) {
 		void *data_copy;
 
 		if( !(data_copy = vips_malloc( NULL, data_length )) ) 
@@ -1264,7 +1282,9 @@ rtiff_set_header( Rtiff *rtiff, VipsImage *out )
 	/* Read any IPCT metadata.
 	 */
 	if( TIFFGetField( rtiff->tiff, 
-		TIFFTAG_RICHTIFFIPTC, &data_length, &data ) ) {
+		TIFFTAG_RICHTIFFIPTC, &data_length, &data ) &&
+		data &&
+		data_length ) {
 		void *data_copy;
 
 		/* For no very good reason, libtiff stores IPCT as an array of
@@ -1282,7 +1302,9 @@ rtiff_set_header( Rtiff *rtiff, VipsImage *out )
 	/* Read any photoshop metadata.
 	 */
 	if( TIFFGetField( rtiff->tiff, 
-		TIFFTAG_PHOTOSHOP, &data_length, &data ) ) {
+		TIFFTAG_PHOTOSHOP, &data_length, &data ) &&
+		data &&
+		data_length ) {
 		void *data_copy;
 
 		if( !(data_copy = vips_malloc( NULL, data_length )) ) 
@@ -1310,6 +1332,11 @@ rtiff_set_header( Rtiff *rtiff, VipsImage *out )
 	 */
 	vips_image_set_int( out, 
 		VIPS_META_ORIENTATION, rtiff->header.orientation );
+
+	/* Tell downstream if we are reading sequentially.
+	 */
+	if( !rtiff->header.tiled ) 
+		vips_image_set_area( out, VIPS_META_SEQUENTIAL, NULL, NULL ); 
 
 	return( 0 );
 }
@@ -1344,6 +1371,17 @@ rtiff_seq_start( VipsImage *out, void *a, void *b )
 	return( (void *) buf );
 }
 
+static int
+rtiff_read_tile( Rtiff *rtiff, tdata_t *buf, int x, int y )
+{
+	if( TIFFReadTile( rtiff->tiff, buf, x, y, 0, 0 ) < 0 ) { 
+		vips_foreign_load_invalidate( rtiff->out );
+		return( -1 ); 
+	}
+
+	return( 0 ); 
+}
+
 /* Paint a tile from the file. This is a
  * special-case for when a region is exactly a tiff tile, and pixels need no
  * conversion. In this case, libtiff can read tiles directly to our output
@@ -1370,9 +1408,9 @@ rtiff_fill_region_aligned( VipsRegion *out, void *seq, void *a, void *b )
 
 	/* Read that tile directly into the vips tile.
 	 */
-	if( TIFFReadTile( rtiff->tiff, 
-		VIPS_REGION_ADDR( out, r->left, r->top ), 
-		r->left, r->top, 0, 0 ) < 0 ) {
+	if( rtiff_read_tile( rtiff,
+		(tdata_t *) VIPS_REGION_ADDR( out, r->left, r->top ), 
+		r->left, r->top ) ) {
 		VIPS_GATE_STOP( "rtiff_fill_region_aligned: work" ); 
 		return( -1 );
 	}
@@ -1424,6 +1462,11 @@ rtiff_fill_region( VipsRegion *out, void *seq, void *a, void *b, gboolean *stop 
 	while( y < r->height ) {
 		VipsRect tile, page, hit;
 
+		/* Not necessary, but it stops static analyzers complaining
+		 * about a used-before-set.
+		 */
+		tile.height = 0;
+
 		x = 0;
 		while( x < r->width ) { 
 			int page_no = rtiff->page + (r->top + y) / 
@@ -1436,8 +1479,7 @@ rtiff_fill_region( VipsRegion *out, void *seq, void *a, void *b, gboolean *stop 
 			int ys = (page_y / tile_height) * tile_height;
 
 			if( rtiff_set_page( rtiff, page_no ) ||
-				TIFFReadTile( rtiff->tiff, 
-					buf, xs, ys, 0, 0 ) < 0 ) {
+				rtiff_read_tile( rtiff, buf, xs, ys ) ) { 
 				VIPS_GATE_STOP( "rtiff_fill_region: work" ); 
 				return( -1 );
 			}
@@ -1640,7 +1682,7 @@ rtiff_strip_read_interleaved( Rtiff *rtiff, tstrip_t strip, tdata_t buf )
 			VipsPel *p;
 			VipsPel *q;
 
-			if( strip_read( rtiff->tiff,
+			if( rtiff_strip_read( rtiff,
 				strips_per_plane * i + strip, 
 				rtiff->plane_buf ) )
 				return( -1 );
@@ -1657,7 +1699,7 @@ rtiff_strip_read_interleaved( Rtiff *rtiff, tstrip_t strip, tdata_t buf )
 		}
 	}
 	else { 
-		if( strip_read( rtiff->tiff, strip, buf ) )
+		if( rtiff_strip_read( rtiff, strip, buf ) )
 			return( -1 );
 	}
 
@@ -1893,9 +1935,6 @@ rtiff_read_stripwise( Rtiff *rtiff, VipsImage *out )
 			rtiff, NULL ) ||
 		vips_sequential( t[0], &t[1], 
 			"tile_height", rtiff->header.rows_per_strip,
-			"access", rtiff->readbehind ? 
-				VIPS_ACCESS_SEQUENTIAL : 
-				VIPS_ACCESS_SEQUENTIAL_UNBUFFERED,
 			NULL ) ||
 		rtiff_autorotate( rtiff, t[1], &t[2] ) ||
 		vips_image_write( t[2], out ) )
@@ -1919,8 +1958,7 @@ rtiff_close( VipsObject *object, Rtiff *rtiff )
 }
 
 static Rtiff *
-rtiff_new( VipsImage *out, 
-	int page, int n, gboolean autorotate, gboolean readbehind )
+rtiff_new( VipsImage *out, int page, int n, gboolean autorotate )
 {
 	Rtiff *rtiff;
 
@@ -1932,7 +1970,6 @@ rtiff_new( VipsImage *out,
 	rtiff->page = page;
 	rtiff->n = n;
 	rtiff->autorotate = autorotate;
-	rtiff->readbehind = readbehind;
 	rtiff->tiff = NULL;
 	rtiff->current_page = -1;
 	rtiff->sfn = NULL;
@@ -2029,6 +2066,7 @@ rtiff_header_read( Rtiff *rtiff, RtiffHeader *header )
 			return( -1 );
 		header->strip_size = TIFFStripSize( rtiff->tiff );
 		header->number_of_strips = TIFFNumberOfStrips( rtiff->tiff );
+		header->read_scanlinewise = FALSE;
 
 		/* rows_per_strip can be 2 ** 32 - 1, meaning the whole image. 
 		 * Clip this down to height to avoid confusing vips. 
@@ -2037,6 +2075,22 @@ rtiff_header_read( Rtiff *rtiff, RtiffHeader *header )
 		 */
 		header->rows_per_strip = 
 			VIPS_CLIP( 1, header->rows_per_strip, header->height );
+
+		/* libtiff has two strip-wise readers. TIFFReadEncodedStrip()
+		 * decompresses an entire strip to memory. It's fast, but it
+		 * will need a lot of ram if the strip is large.
+		 * TIFFReadScanline() reads a single scanline. It's slower, but
+		 * will save a lot of memory if strips are large.
+		 *
+		 * If this image has a strip size of over 128 lines, fall back
+		 * to TIFFReadScanline(), otherwise use TIFFReadEncodedStrip().
+		 */
+		if( header->rows_per_strip > 128 ) {
+			header->rows_per_strip = 1;
+			header->strip_size = TIFFScanlineSize( rtiff->tiff );
+			header->number_of_strips = header->height;
+			header->read_scanlinewise = TRUE;
+		}
 	}
 
 	return( 0 );
@@ -2119,11 +2173,11 @@ rtiff_header_read_all( Rtiff *rtiff )
 
 static Rtiff *
 rtiff_new_filename( const char *filename, VipsImage *out, 
-	int page, int n, gboolean autorotate, gboolean readbehind )
+	int page, int n, gboolean autorotate )
 {
 	Rtiff *rtiff;
 
-	if( !(rtiff = rtiff_new( out, page, n, autorotate, readbehind )) ||
+	if( !(rtiff = rtiff_new( out, page, n, autorotate )) ||
 		!(rtiff->tiff = vips__tiff_openin( filename )) || 
 		rtiff_header_read_all( rtiff ) )
 		return( NULL );
@@ -2135,11 +2189,11 @@ rtiff_new_filename( const char *filename, VipsImage *out,
 
 static Rtiff *
 rtiff_new_buffer( const void *buf, size_t len, VipsImage *out, 
-	int page, int n, gboolean autorotate, gboolean readbehind )
+	int page, int n, gboolean autorotate )
 {
 	Rtiff *rtiff;
 
-	if( !(rtiff = rtiff_new( out, page, n, autorotate, readbehind )) ||
+	if( !(rtiff = rtiff_new( out, page, n, autorotate )) ||
 		!(rtiff->tiff = vips__tiff_openin_buffer( out, buf, len )) ||
 		rtiff_header_read_all( rtiff ) )
 		return( NULL );
@@ -2170,7 +2224,7 @@ istiffpyramid( const char *name )
 
 int
 vips__tiff_read( const char *filename, VipsImage *out, 
-	int page, int n, gboolean autorotate, gboolean readbehind )
+	int page, int n, gboolean autorotate )
 {
 	Rtiff *rtiff;
 
@@ -2181,8 +2235,7 @@ vips__tiff_read( const char *filename, VipsImage *out,
 
 	vips__tiff_init();
 
-	if( !(rtiff = rtiff_new_filename( filename, 
-		out, page, n, autorotate, readbehind )) )
+	if( !(rtiff = rtiff_new_filename( filename, out, page, n, autorotate )) )
 		return( -1 );
 
 	if( rtiff->header.tiled ) {
@@ -2228,8 +2281,7 @@ vips__tiff_read_header( const char *filename, VipsImage *out,
 
 	vips__tiff_init();
 
-	if( !(rtiff = rtiff_new_filename( filename, out, 
-		page, n, autorotate, FALSE )) )
+	if( !(rtiff = rtiff_new_filename( filename, out, page, n, autorotate )) )
 		return( -1 );
 
 	if( rtiff_set_header( rtiff, out ) )
@@ -2297,8 +2349,7 @@ vips__tiff_read_header_buffer( const void *buf, size_t len, VipsImage *out,
 
 	vips__tiff_init();
 
-	if( !(rtiff = rtiff_new_buffer( buf, len, out, 
-		page, n, autorotate, FALSE )) )
+	if( !(rtiff = rtiff_new_buffer( buf, len, out, page, n, autorotate )) )
 		return( -1 );
 
 	if( rtiff_set_header( rtiff, out ) )
@@ -2311,8 +2362,7 @@ vips__tiff_read_header_buffer( const void *buf, size_t len, VipsImage *out,
 
 int
 vips__tiff_read_buffer( const void *buf, size_t len, 
-	VipsImage *out, int page, int n, gboolean autorotate, 
-	gboolean readbehind )
+	VipsImage *out, int page, int n, gboolean autorotate )
 {
 	Rtiff *rtiff;
 
@@ -2323,8 +2373,7 @@ vips__tiff_read_buffer( const void *buf, size_t len,
 
 	vips__tiff_init();
 
-	if( !(rtiff = rtiff_new_buffer( buf, len, out, 
-		page, n, autorotate, readbehind )) )
+	if( !(rtiff = rtiff_new_buffer( buf, len, out, page, n, autorotate )) )
 		return( -1 );
 
 	if( rtiff->header.tiled ) {
@@ -2337,6 +2386,31 @@ vips__tiff_read_buffer( const void *buf, size_t len,
 	}
 
 	return( 0 );
+}
+
+gboolean
+vips__istifftiled_buffer( const void *buf, size_t len )
+{
+	VipsImage *im;
+	TIFF *tif;
+	gboolean tiled;
+
+	vips__tiff_init();
+
+	im = vips_image_new();
+
+	if( !(tif = vips__tiff_openin_buffer( im, buf, len )) ) {
+		g_object_unref( im );
+		vips_error_clear();
+		return( FALSE );
+	}
+
+	tiled = TIFFIsTiled( tif );
+
+	TIFFClose( tif );
+	g_object_unref( im );
+
+	return( tiled );
 }
 
 #endif /*HAVE_TIFF*/
