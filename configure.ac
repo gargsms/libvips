@@ -37,9 +37,9 @@ VIPS_VERSION_STRING=$VIPS_VERSION-`date`
 #   binary interface changes backwards compatible?: increment age
 #   binary interface changes not backwards compatible?: reset age to 0
 
-LIBRARY_CURRENT=49
-LIBRARY_REVISION=5
-LIBRARY_AGE=7
+LIBRARY_CURRENT=50
+LIBRARY_REVISION=0
+LIBRARY_AGE=8
 
 # patched into include/vips/version.h
 AC_SUBST(VIPS_VERSION)
@@ -237,7 +237,8 @@ if test x"$vips_os_darwin" = x"yes"; then
   profile_dir="/Library/ColorSync/Profiles"
 elif test x"$vips_os_win32" = x"yes"; then
   # need double escapes since this will get pasted into a #define in a C
-  # header
+  # header ... the C:\Windows is usually overrwritten with the result of
+  # GetWindowsDirectoryW()
   profile_dir="C:\\\\Windows\\\\System32\\\\spool\\\\drivers\\\\color"
 else
   profile_dir="/usr/share/color/icc"

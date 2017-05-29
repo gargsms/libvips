@@ -4,10 +4,23 @@
   constant image
 - add new_from_image() to Python as well
 - slight change to cpp new_from_image() to match py/C behaviour
+- vips_conv(), vips_compass(), vips_convsep() default to FLOAT precision
+- add FORCE resize mode to break aspect ratio
+- add vips_thumbnail_image()
+- better prefix guessing on Windows, thanks tumagonx
+
+19/5/17 started 8.5.6
+- tiff read with start page > 0 could break edge tiles or strips
+- raise b64 limit to allow for huge profiles (thanks jaume)
+- fix error return in blob save (thanks jaume)
+- tag vipsprofile as py2 (thanks ioquatix)
+- don't cache thumbnail (thanks tomasc)
 
 23/4/17 started 8.5.5
 - doc polishing
-- more improvements for tuncated PNG files, thanks juyunsang 
+- more improvements for truncated PNG files, thanks juyunsang 
+- improve corrupted jpg handling, thanks juyunsang
+- fix small test suite issues on os x
 
 23/4/17 started 8.5.4
 - don't depend on image width when setting n_lines, thanks kleisauke

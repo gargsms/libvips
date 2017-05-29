@@ -264,7 +264,9 @@ vips_sharpen_build( VipsObject *object )
 	 */
 	if( vips_extract_band( in, &args[0], 0, NULL ) ||
 		vips_extract_band( in, &t[3], 1, "n", in->Bands - 1, NULL ) ||
-		vips_convsep( args[0], &args[1], t[1], NULL ) )
+		vips_convsep( args[0], &args[1], t[1], 
+			"precision", VIPS_PRECISION_INTEGER,
+			NULL ) )
 		return( -1 );
 
 	/* Set demand hints. FATSTRIP is good for us, as THINSTRIP will cause
@@ -411,23 +413,23 @@ vips_sharpen_init( VipsSharpen *sharpen )
  * The lookup table is formed like this:
  *
  * |[
- *                      ^
- *                   y2 |- - - - - -----------
- *                      |         / 
- *                      |        / slope m2
- *                      |    .../    
- *              -x1     | ...   |    
- *  -------------------...---------------------->
- *              |   ... |      x1           
- *              |... slope m1
- *              /       |
- *             / m2     |
- *            /         |
- *           /          |
- *          /           |
- *         /            |
- *  ______/ _ _ _ _ _ _ | -y3
- *                      |
+ * .                     ^
+ * .                  y2 |- - - - - -----------
+ * .                     |         / 
+ * .                     |        / slope m2
+ * .                     |    .../    
+ * .             -x1     | ...   |    
+ * . -------------------...---------------------->
+ * .             |   ... |      x1           
+ * .             |... slope m1
+ * .             /       |
+ * .            / m2     |
+ * .           /         |
+ * .          /          |
+ * .         /           |
+ * .        /            |
+ * . ______/ _ _ _ _ _ _ | -y3
+ * .                     |
  * ]|
  *
  * For screen output, we suggest the following settings (the defaults):
