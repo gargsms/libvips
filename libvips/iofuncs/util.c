@@ -1929,3 +1929,80 @@ vips__random_add( guint32 seed, int value )
 
 	return( vips__random( seed ) ); 
 }
+
+static void *
+vips_icc_dir_once( void *null )
+{
+#ifdef OS_WIN32
+	/* From glib get_windows_directory_root()
+	 */
+	wchar_t wwindowsdir[MAX_PATH];
+
+	if( GetWindowsDirectoryW( wwindowsdir, G_N_ELEMENTS( wwindowsdir ) ) ) {
+		/* Usually X:\Windows, but in terminal server environments
+		 * might be an UNC path, AFAIK.
+		 */
+		char *windowsdir;
+
+		if( (windowsdir = g_utf16_to_utf8( wwindowsdir, 
+			-1, NULL, NULL, NULL)) ) {
+			gchar *full_path;
+
+			full_path = g_build_filename( windowsdir, 
+				"system32", "spool", "drivers", "color", NULL );
+			g_free( windowsdir );
+
+			return( (void *) full_path );
+		}
+	}
+#endif
+
+	return( (void *) VIPS_ICC_DIR );
+}
+
+const char *
+vips__icc_dir( void )
+{
+	static GOnce once = G_ONCE_INIT;
+
+	return( (const char *) g_once( &once, 
+		(GThreadFunc) vips_icc_dir_once, NULL ) );
+}
+
+#ifdef OS_WIN32
+static HMODULE vips__dll = NULL;
+#ifdef DLL_EXPORT
+BOOL WINAPI
+DllMain( HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved )
+{
+	if( fdwReason == DLL_PROCESS_ATTACH )
+		vips__dll = hinstDLL;
+
+	return( TRUE );
+}
+#endif
+#endif
+
+static void *
+vips__windows_prefix_once( void *null )
+{
+	char *prefix;
+
+#ifdef OS_WIN32
+	prefix = g_win32_get_package_installation_directory_of_module( 
+		vips__dll ),
+#else
+        prefix = (char *) g_getenv( "VIPSHOME" );
+#endif
+
+	return( (void *) prefix ); 
+}
+
+const char *
+vips__windows_prefix( void )
+{
+	static GOnce once = G_ONCE_INIT;
+
+	return( (const char *) g_once( &once, 
+		(GThreadFunc) vips__windows_prefix_once, NULL ) );
+}

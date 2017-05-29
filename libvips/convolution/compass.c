@@ -2,6 +2,9 @@
  *
  * 23/10/13	
  * 	- from vips_conv()
+ * 8/5/17
+ *      - default to float ... int will often lose precision and should not be
+ *        the default
  */
 
 /*
@@ -172,7 +175,7 @@ vips_compass_class_init( VipsCompassClass *class )
 		_( "Convolve with this precision" ),
 		VIPS_ARGUMENT_OPTIONAL_INPUT, 
 		G_STRUCT_OFFSET( VipsCompass, precision ), 
-		VIPS_TYPE_PRECISION, VIPS_PRECISION_INTEGER ); 
+		VIPS_TYPE_PRECISION, VIPS_PRECISION_FLOAT ); 
 
 	VIPS_ARG_INT( class, "layers", 204, 
 		_( "Layers" ), 
@@ -196,11 +199,35 @@ vips_compass_init( VipsCompass *compass )
 	compass->times = 2;
 	compass->angle = VIPS_ANGLE45_D90;
 	compass->combine = VIPS_COMBINE_MAX;
-	compass->precision = VIPS_PRECISION_INTEGER;
+	compass->precision = VIPS_PRECISION_FLOAT;
 	compass->layers = 5;
 	compass->cluster = 1;
 }
 
+/**
+ * vips_compass:
+ * @in: input image
+ * @out: output image
+ * @mask: convolve with this mask
+ * @...: %NULL-terminated list of optional named arguments
+ *
+ * Optional arguments:
+ *
+ * * @times: %gint, how many times to rotate and convolve
+ * * @angle: #VipsAngle45, rotate mask by this much between colvolutions
+ * * @combine: #VipsCombine, combine results like this
+ * * @precision: #VipsPrecision, precision for blur, default float
+ * * @layers: %gint, number of layers for approximation
+ * * @cluster: %gint, cluster lines closer than this distance
+ *
+ * This convolves @in with @mask @times times, rotating @mask by @angle
+ * each time. By default, it comvolves twice, rotating by 90 degrees, taking
+ * the maximum result.
+ *
+ * See also: vips_conv().
+ *
+ * Returns: 0 on success, -1 on error.
+ */
 int 
 vips_compass( VipsImage *in, VipsImage **out, VipsImage *mask, ... )
 {
