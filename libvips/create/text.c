@@ -418,7 +418,8 @@ vips_text_build( VipsObject *object )
 			PangoFontDescription *temp_fd = pango_font_description_copy( 
 				pango_layout_get_font_description( text->layout ) );
 			int fz = pango_font_description_get_size( temp_fd );
-			pango_font_description_set_size( temp_fd, (int)(fz * scale) );
+			font_size = (int)(fz * scale / PANGO_SCALE);
+			pango_font_description_set_size( temp_fd, font_size * PANGO_SCALE );
 			pango_layout_set_font_description( text->layout, temp_fd );
 			pango_font_description_free( temp_fd );
 
@@ -430,6 +431,12 @@ vips_text_build( VipsObject *object )
 
 		int padl = 0;
 		int padt = 0;
+
+		/* This prevents distortions in rendering due to alignment
+		 * centre, high alignments add their own left values
+		 */
+		left = 0;
+		top = 0;
 
 		switch( text->gravity ) {
 			case VIPS_GRAVITY_CENTER:
@@ -472,8 +479,8 @@ vips_text_build( VipsObject *object )
 				break;
 		}
 
-		left = left - ( width > text->width ? 0 : padl ) + PANGO_PIXELS( logical_rect.x );
-		top = top - ( height > text->height ? 0 : padt ) + PANGO_PIXELS( logical_rect.y );
+		left = PANGO_PIXELS( logical_rect.x ) - ( width > text->width ? 0 : padl );
+		top = PANGO_PIXELS( logical_rect.y ) - ( height > text->height ? 0 : padt );
 		width = text->width > width ? text->width : width;
 		height = text->height > height ? text->height : height;
 	}
@@ -514,6 +521,8 @@ vips_text_build( VipsObject *object )
 		1.0, 1.0 ); 
 	vips_image_pipelinev( create->out, 
 		VIPS_DEMAND_STYLE_ANY, NULL );
+
+	vips_image_set_int( create->out, "font-size", font_size );
 
 	for( y = 0; y < text->bitmap.rows; y++ ) 
 		if( vips_image_write_line( create->out, y, 
